@@ -1,0 +1,51 @@
+# Platform capability registry.
+# Values marked `verified:` below were checked against current official docs during the build
+# (see docs/API_COMPATIBILITY.md). Anything unverifiable is flagged there as BLOCKED.
+# NEVER hardcode these numbers in Python - always load from this file.
+
+x:
+  display_name: X
+  buffer_service: x            # Buffer's internal service key for X
+  single:
+    max_length: 280            # weighted length; URLs count as 23 (t.co), CJK weight 2
+    url_length: 23
+    media_supported: true
+  thread:
+    max_posts: 18              # conservative operational cap; X threads are reply chains
+    max_total_length: 5600
+  hashtags:
+    recommended_max: 3
+  scheduling:
+    # Local posting windows in Asia/Kolkata, 24h format. Ordered preference first.
+    windows:
+      - { days: [Mon, Tue, Wed, Thu, Fri], start: "09:00", end: "11:30" }
+      - { days: [Mon, Tue, Wed, Thu, Fri], start: "19:30", end: "22:00" }
+      - { days: [Sat, Sun], start: "10:30", end: "13:00" }
+      - { days: [Sat, Sun], start: "18:00", end: "21:00" }
+    min_gap_same_platform_minutes: 180
+    min_gap_cross_platform_minutes: 45
+    max_per_day: 3
+
+threads:
+  display_name: Threads
+  buffer_service: threads      # Buffer's internal service key for Meta Threads
+  single:
+    max_length: 500
+    url_length: 0              # full URL text counts (no shortener)
+    media_supported: true
+  thread:
+    max_posts: 50              # Threads API allows attaching replies; conservative cap
+    max_total_length: 8000
+  hashtags:
+    recommended_max: 5         # Threads docs: one topic tag per post; treat >5 as slop
+  scheduling:
+    windows:
+      - { days: [Mon, Tue, Wed, Thu, Fri], start: "08:00", end: "10:30" }
+      - { days: [Mon, Tue, Wed, Thu, Fri], start: "18:30", end: "21:00" }
+      - { days: [Sat, Sun], start: "09:30", end: "12:00" }
+      - { days: [Sat, Sun], start: "17:30", end: "20:30" }
+    min_gap_same_platform_minutes: 180
+    min_gap_cross_platform_minutes: 45
+    max_per_day: 3
+
+timezone: "Asia/Kolkata"

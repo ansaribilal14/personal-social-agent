@@ -1,0 +1,16 @@
+# Secrets - NEVER commit
+.env
+.env.*
+*.pem
+*.key
+
+# Runtime state
+*.db
+*.sqlite*
+.agent-state/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+build/
+dist/

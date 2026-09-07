@@ -1,0 +1,49 @@
+# Editorial strategy configuration. PLACEHOLDER PILLARS - edit to your preferences.
+# These are configuration-driven; nothing here is hardcoded in Python.
+
+pillars:
+  - { name: AI,          weight: 30, enabled: true }
+  - { name: Technology,  weight: 20, enabled: true }
+  - { name: Building,    weight: 20, enabled: true }
+  - { name: Opinions,    weight: 15, enabled: true }
+  - { name: Discoveries, weight: 10, enabled: true }
+  - { name: Personal,    weight: 5,  enabled: true }
+
+# Score = sum(component_score * weight) / 100, computed in code (never by the LLM).
+scoring_weights:
+  novelty: 15
+  interestingness: 20
+  relevance: 10
+  personal_fit: 15
+  discussion_value: 15
+  factual_confidence: 10
+  content_potential: 10
+  timeliness: 5
+
+why_me_test:
+  # Every candidate must produce a non-trivial answer for each question,
+  # otherwise it is discarded or held.
+  required_questions:
+    - why_interesting
+    - why_now
+    - why_this_angle
+    - why_this_platform
+    - why_this_account
+  min_answer_length: 20
+
+editorial_ranking:
+  # Only top candidates are sent to review - protects the human from mediocre posts.
+  top_n_per_run: 3
+  min_editorial_score: 70
+
+research:
+  # "What is worth having something to say about?" - never "what is trending?"
+  max_items_per_run: 12
+  freshness_days_fresh: 3
+  freshness_days_recent: 21
+  feeds: []   # RSS/Atom URLs; keep [] to rely on NIM knowledge + evergreen prompts until you add feeds
+
+learning:
+  # A learned preference is promoted to persistent editorial guidance only after
+  # this many consistent user signals (section 22 of the spec).
+  min_signals_for_promotion: 3

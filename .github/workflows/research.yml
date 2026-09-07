@@ -1,0 +1,30 @@
+name: research
+
+on:
+  schedule:
+    - cron: "0 3,11,19 * * *"   # 3x daily (times are UTC)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: research
+  cancel-in-progress: false
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+      - name: Run research pipeline
+        run: python scripts/run_pipeline.py --stage research

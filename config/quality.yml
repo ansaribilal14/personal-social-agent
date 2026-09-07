@@ -1,0 +1,54 @@
+# Quality engine configuration (spec sections 23-25).
+# The final PASS/FAIL/REVISE decision is COMPUTED IN CODE from these thresholds -
+# never from a single LLM-asserted score.
+
+thresholds:
+  min_overall_score: 75          # weighted composite, computed in code
+  min_critic_score: 70           # any critic below this -> REVISE at minimum
+  fail_on_critic_failed: true    # any critic returning passed=false on a hard gate -> FAIL
+  max_revision_cycles: 2         # after this, candidates go to review with honest scores
+
+hard_gates:                      # passed=false on these -> FAIL regardless of scores
+  - platform_fit
+  - antislop
+  - fact
+
+# Deterministic anti-slop ruleset (editable). Combined with NIM-based judgment,
+# never replaced by it.
+anti_slop:
+  banned_phrases:
+    - "In today's fast-paced world"
+    - "game-changer"
+    - "Let's dive in"
+    - "Let's deep dive"
+    - "buckle up"
+    - "I'm thrilled to"
+    - "revolutionize"
+    - "unlock the power"
+    - "In conclusion"
+    - "As an AI"
+    - "delve into"
+    - "tapestry"
+    - "navigate the landscape"
+    - "It's not just X, it's Y"
+  max_emoji_count: 0
+  max_em_dash_per_post: 1
+  max_exclamation_marks: 0
+  max_hashtags: 2
+  ban_engagement_bait: true      # "RT if", "like if", "follow for", "comment below"
+  ban_fake_urgency: true         # "before it's too late", "you won't believe"
+  ban_fabricated_experience: true # first-person experience claims require PERSONAL_EXPERIENCE claim backing
+  min_substantive_ratio: 0.6     # share of sentences carrying observation/opinion/evidence
+
+similarity:                      # originality engine thresholds (0..1)
+  exact: 0.98
+  near: 0.85
+  semantic: 0.45                 # trigram cosine (embeddings when available);
+                                 # measured separation: reworded dup ~0.50, distinct ~0.05
+  hook: 0.75
+  max_history_lookback: 200      # compare against this many recent variants
+
+claims:
+  fact_requires_source: true     # FACT claims without a research source -> UNVERIFIED -> rewrite
+  allow_speculation_unverified: true
+  unverified_policy: rewrite     # rewrite | remove | block

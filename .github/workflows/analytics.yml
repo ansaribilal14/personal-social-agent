@@ -1,0 +1,30 @@
+name: analytics
+
+on:
+  schedule:
+    - cron: "15 * * * *"   # hourly snapshot collection
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: analytics
+  cancel-in-progress: false
+
+jobs:
+  analytics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
+      BUFFER_API_BASE: ${{ secrets.BUFFER_API_BASE }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+      - run: python scripts/run_pipeline.py --stage analytics

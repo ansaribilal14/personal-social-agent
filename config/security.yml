@@ -1,0 +1,35 @@
+# Security configuration (spec sections 3, 12, 34, 50-51, 57).
+# Secrets NEVER go here - only GitHub Secrets / env / DB settings.
+
+kill_switch:
+  # GLOBAL: when disabled, research/drafting/analysis/review are ALLOWED,
+  # scheduling and publishing are BLOCKED. Checked immediately before each.
+  default: disabled            # fail-safe: publishing off until explicitly enabled
+  setting_key: SOCIAL_AUTOMATION_ENABLED
+
+approval:
+  # Only these GitHub usernames may run /approve /reject /iterate.
+  # Comma-separated env override: AUTHORIZED_REVIEWERS
+  authorized_users:
+    - ansaribilal14
+  require_version_match: true
+  require_state: WAITING_APPROVAL   # /approve only valid from this state
+
+commands:
+  max_iterate_instruction_chars: 500
+  allowed_commands: [approve, reject, iterate]
+
+injection_defense:
+  wrap_external_data: true
+  # If external research contains instruction-like patterns, flag it; data is
+  # still stored but marked contaminated and excluded from generation.
+  flag_patterns:
+    - "ignore previous instructions"
+    - "disregard all"
+    - "you are now"
+    - "system prompt"
+    - "publish this"
+    - "approve this post"
+
+logging:
+  redact_keys: [authorization, token, secret, password, api_key, webhook, jwt]

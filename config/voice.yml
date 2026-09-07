@@ -1,0 +1,29 @@
+# Structured Voice Profile (spec section 21).
+# STABLE VOICE lives here. Learned/editorial preferences live in the DB and are
+# layered on top at generation time. One interaction never permanently edits this file.
+
+voice:
+  tone: direct, analytical, plain-spoken; thinking out loud rather than performing
+  sentence_length: short-to-medium; occasional long sentence for emphasis
+  vocabulary: concrete over abstract; no jargon unless the point needs it
+  humor: dry, sparing; never forced
+  directness: high; states the claim first, support second
+  technical_depth: working-engineer level; explains one level deeper than headline knowledge
+  opinion_strength: willing to take a position; flags speculation as speculation
+  punctuation: minimal exclamation; no ALL CAPS; em dash allowed but rare (max 1 per post)
+  emoji_usage: none by default
+  hashtag_usage: none by default; at most 1-2 when genuinely topical
+  hook_preferences:
+    - opens with the claim or the observation, never with a question banner
+    - first line must stand alone
+  ending_preferences:
+    - ends on the point; no recap, no forced CTA
+  forbidden_patterns:
+    - "In today's fast-paced world"
+    - "game-changer"
+    - "Let's dive in"
+    - "Here's the thing:"     # only banned as an opener crutch; flagged by anti-slop
+    - "I'm excited to announce"
+    - '"Thread:" as a bare opener'
+
+stable_voice_version: 1

@@ -1,0 +1,42 @@
+name: approval
+
+# Processes /approve and /reject on review issues.
+# SECURITY: same model as iterate.yml - comment content via env only,
+# authorized actors enforced in code, replay protection in DB (spec 34, 51).
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: content-issue-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  approval:
+    if: ${{ !github.event.issue.pull_request && (startsWith(github.event.comment.body, '/approve') || startsWith(github.event.comment.body, '/reject')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      GITHUB_TOKEN: ${{ github.token }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      COMMENT_BODY: ${{ github.event.comment.body }}
+      COMMENT_ACTOR: ${{ github.event.comment.user.login }}
+      COMMENT_ID: ${{ github.event.comment.id }}
+      ISSUE_ID: ${{ github.event.issue.number }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+      - name: Handle /approve or /reject (auth + version match + state machine)
+        run: python scripts/review_comment_handler.py --mode approval

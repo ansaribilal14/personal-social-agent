@@ -1,0 +1,26 @@
+# Scheduling configuration (spec sections 37-38). Times in platforms.yml windows.
+# Nothing time-related is hardcoded in Python.
+
+timezone: "Asia/Kolkata"
+
+defaults:
+  posts_per_day_total: 2
+  prefer_recommended_slots: true   # schedule inside platform windows
+
+collision:
+  min_gap_same_platform_minutes: 180   # mirrors platforms.yml; enforced here too
+  min_gap_cross_platform_minutes: 45
+  min_gap_to_recent_published_minutes: 240
+  check_scheduled: true
+
+lookahead:
+  schedule_window_hours: 48       # pick slot within next N hours
+
+retry:                             # publication retry policy (spec section 40)
+  max_attempts: 4
+  backoff_base_seconds: 60
+  backoff_factor: 2                # 60s, 120s, 240s bounded
+
+analytics:
+  snapshot_intervals_hours: [1, 6, 24, 48, 168]   # 1h 6h 24h 48h 7d
+  min_sample_size: 4              # below this, analysis reports "insufficient data"

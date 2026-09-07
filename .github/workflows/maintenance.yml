@@ -1,0 +1,58 @@
+name: maintenance
+
+# Health checks + reconciliation. Never publishes. Also the CI test runner
+# (tests self-contained, no network, no secrets).
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+    inputs:
+      run_tests:
+        description: "Run the pytest suite instead of maintenance checks"
+        required: false
+        default: "false"
+  push:
+    branches: [main]
+    paths: ["src/**", "integrations/**", "tests/**", "config/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: maintenance
+  cancel-in-progress: false
+
+jobs:
+  tests:
+    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_tests == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - name: Run full test suite (no secrets, no live APIs)
+        run: python -m pytest tests/ -v
+        env:
+          SQLITE_PATH: ":memory:"
+
+  maintenance:
+    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_tests != 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
+      BUFFER_API_BASE: ${{ secrets.BUFFER_API_BASE }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+      - run: python scripts/run_pipeline.py --stage maintenance
