@@ -53,8 +53,8 @@ Implemented from scratch (see docs/ARCHITECTURE.md for details):
 
 | Credential | Status | Evidence |
 |---|---|---|
-| GitHub PAT (`ghp_...UVz`) | VERIFIED WORKING | `GET /user` 200 |
-| Buffer token (`opJ5...q3Gt`) | BLOCKED - rejected | `api.bufferapp.com/1/user.json` 401 invalid; `api.buffer.com/api/1/user.json` 401 UNAUTHENTICATED; GraphQL introspection path 404. All variants exhausted (Bearer, query param, alternate header). The adapter is implemented per current docs and classifies the 401 gracefully; publishing will fail safely (never silently) until a valid token is configured. |
+| GitHub PAT (`ghp_…` redacted) | VERIFIED WORKING | `GET /user` 200 |
+| Buffer token (`op…q3Gt` redacted) | BLOCKED at build time - rejected | `api.bufferapp.com/1/user.json` 401 invalid; `api.buffer.com/api/1/user.json` 401 UNAUTHENTICATED; GraphQL introspection path 404. All variants exhausted (Bearer, query param, alternate header). The adapter is implemented per current docs and classifies the 401 gracefully; publishing will fail safely (never silently) until a valid token is configured. |
 | NVIDIA NIM key | NOT PROVIDED | adapter + failure taxonomy implemented; pipelines mark themselves BLOCKED without it |
 | Discord webhook | NOT PROVIDED | client implemented; notifications are skipped and logged when unset |
 | Supabase | NOT PROVIDED | full schema in migrations/; runtime accepts `SUPABASE_DB_URL`/`DATABASE_URL` (postgres://) |

@@ -1,4 +1,8 @@
-"""Discord notifications (spec section 32) - presentation only, DB is truth."""
+"""Discord notifications (spec section 32) - presentation only, DB is truth.
+
+Delivery: Discord webhook if configured, else the bot token routes messages
+to purpose-specific channels (review / alerts / analytics / errors).
+"""
 from __future__ import annotations
 
 import json
@@ -10,9 +14,24 @@ from src.db.repository import Repository
 def _repo_enabled() -> bool:
     try:
         from src.config import get_config
-        return bool(get_config().discord_webhook_url)
+        cfg = get_config()
+        if cfg.discord_webhook_url:
+            return True
+        if cfg.discord_bot_token and any(
+                cfg.discord_channel(p) for p in ("review", "alerts", "errors", "analytics")):
+            return True
+        return False
     except Exception:
         return False
+
+
+def _send_to(purpose: str, text: str) -> bool:
+    """Purpose-routed send with a graceful fallback to plain send()."""
+    client = DiscordClient()
+    try:
+        return client.send_to(purpose, text)
+    except Exception:
+        return client.send(text)
 
 
 def format_review_card(post: dict, version: dict, scores: dict,
@@ -49,6 +68,7 @@ def format_review_card(post: dict, version: dict, scores: dict,
     lines.append("")
     lines.append(f"GitHub Review: {issue_url}")
     lines.append("Commands: /approve | /reject | /iterate <instruction>")
+    lines.append("(in Discord: /approve <uid>, or on GitHub under the issue)")
     return "\n".join(lines)
 
 
@@ -56,11 +76,11 @@ def send_review_card(repo: Repository, post: dict, version: dict, scores: dict,
                      editorial_score: int, recommended_slot: str,
                      issue_url: str) -> bool:
     if not _repo_enabled():
-        repo.log_event("discord.skipped_no_webhook", post_id=post["id"])
+        repo.log_event("discord.skipped_not_configured", post_id=post["id"])
         return False
     text = format_review_card(post, version, scores, editorial_score,
                               recommended_slot, issue_url)
-    ok = DiscordClient().send(text)
+    ok = _send_to("review", text)
     repo.log_event("discord.review_card_sent", post_id=post["id"],
                    payload={"issue_url": issue_url})
     return ok
@@ -77,11 +97,11 @@ def notify_publish_failed(repo: Repository, entry: dict, error: str) -> bool:
             f"Outbox: {entry.get('status')}\n"
             f"Error: {str(error)[:400]}\n"
             f"Content is preserved and NOT regenerated; inspect the outbox row.")
-    return DiscordClient().send(text)
+    return _send_to("errors", text)
 
 
 def notify_weekly_report(repo: Repository, report: dict) -> bool:
     if not _repo_enabled():
         return False
     text = "SOCIAL WEEKLY REPORT\n" + json.dumps(report, indent=1, ensure_ascii=False)
-    return DiscordClient().send(text[:3800])
+    return _send_to("analytics", text[:3800])

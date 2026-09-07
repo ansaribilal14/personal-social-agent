@@ -137,6 +137,7 @@ class Publisher:
         self.repo.move_state(entry["post_id"], State.PUBLISHED, actor="publisher")
         self.repo.log_event("publish.accepted", post_id=entry["post_id"],
                             payload={"buffer_post_id": result["buffer_post_id"],
+                                     "buffer_post_ids": result.get("buffer_post_ids") or [result["buffer_post_id"]],
                                      "scheduled_at": result.get("scheduled_at")})
 
     def _scheduled_slot(self, post_id: int) -> str | None:

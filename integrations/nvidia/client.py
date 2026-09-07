@@ -19,9 +19,17 @@ from typing import Any, Callable
 import requests
 
 DEFAULT_BASE_URL = "https://integrate.api.nvidia.com/v1"
-DEFAULT_MODEL = os.environ.get("NIM_MODEL", "meta/llama-3.3-70b-instruct")
+# Live-verified 2026-09-07: meta/llama-3.3-70b-instruct reached end-of-life on
+# NIM (HTTP 410); nvidia/nemotron-3.5-lightning-30b-a3b responds correctly and
+# is the default. Nemotron-3 models are reasoning models - the client disables
+# chain-of-thought via chat_template_kwargs (see _extra_payload) so `content`
+# carries only the final answer. Override with NIM_MODEL; set NIM_THINKING=true
+# to keep reasoning mode (content is then stripped of <think> blocks).
+DEFAULT_MODEL = os.environ.get("NIM_MODEL", "nvidia/nemotron-3.5-lightning-30b-a3b")
 DEFAULT_TIMEOUT = float(os.environ.get("NIM_TIMEOUT_SECONDS", "60"))
 MAX_RETRIES = int(os.environ.get("NIM_MAX_RETRIES", "2"))
+
+THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 
 
 class NIMError(Exception):
@@ -76,6 +84,22 @@ class NIMClient:
             "Accept": "application/json",
         }
 
+    @staticmethod
+    def _extra_payload(model: str) -> dict:
+        """Nemotron-3 reasoning models: default to thinking OFF so the final
+        answer lands in `content` without reasoning preamble. Live-verified:
+        with chat_template_kwargs {thinking: false} the model returns clean
+        tweet-sized answers; without it, reasoning text leaks into content."""
+        if "nemotron" in model.lower() and \
+                os.environ.get("NIM_THINKING", "false").lower() != "true":
+            return {"chat_template_kwargs": {"thinking": False}}
+        return {}
+
+    @staticmethod
+    def _strip_think(text: str) -> str:
+        """Defensive removal of <think>...</think> blocks from content."""
+        return THINK_RE.sub("", text).strip()
+
     def chat(self, system: str, user: str, model: str | None = None,
              temperature: float = 0.4, max_tokens: int = 2048,
              on_retry: Callable[[int, Exception], None] | None = None) -> str:
@@ -84,14 +108,16 @@ class NIMClient:
             raise NimUnavailable("NVIDIA_API_KEY not configured")
 
         url = f"{self.base_url}/chat/completions"
+        chosen_model = model or self.model
         payload = {
-            "model": model or self.model,
+            "model": chosen_model,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
             "temperature": temperature,
             "max_tokens": max_tokens,
+            **self._extra_payload(chosen_model),
         }
 
         last_exc: Exception | None = None
@@ -111,7 +137,7 @@ class NIMClient:
                 content = (choices[0].get("message") or {}).get("content")
                 if not content or not str(content).strip():
                     raise NimEmptyResponse("empty content from provider")
-                return str(content).strip()
+                return self._strip_think(str(content))
             except (NimRateLimited, NimTimeout, requests.Timeout,
                     requests.ConnectionError) as exc:
                 last_exc = exc

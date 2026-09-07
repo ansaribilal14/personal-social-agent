@@ -1,0 +1,19 @@
+# Personal Social Publishing OS - one-command runtime
+# 1) cp .env.example .env  and fill in your keys
+# 2) docker compose up -d          # runs the Discord bot
+# 3) run pipeline stages:
+#    docker compose run --rm engine python scripts/run_pipeline.py --stage research
+services:
+  engine:
+    build: .
+    image: personal-social-os:latest
+    env_file: .env
+    environment:
+      # persistent local state when DATABASE_URL is not set
+      SQLITE_PATH: /data/agent.db
+    volumes:
+      - engine-data:/data
+    restart: unless-stopped
+
+volumes:
+  engine-data:

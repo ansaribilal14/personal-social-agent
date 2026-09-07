@@ -79,6 +79,28 @@ class Config:
         return self.env("DISCORD_WEBHOOK_URL")
 
     @property
+    def discord_bot_token(self) -> str | None:
+        return self.env("DISCORD_BOT_TOKEN")
+
+    @property
+    def discord_guild_id(self) -> str | None:
+        return self.env("DISCORD_GUILD_ID")
+
+    @property
+    def nim_model(self) -> str | None:
+        return self.env("NIM_MODEL")
+
+    def discord_channel(self, purpose: str) -> str | None:
+        """Purpose-routed channel id: review/alerts/analytics/errors/general/strategy."""
+        return self.env(f"DISCORD_CHANNEL_{purpose.upper()}")
+
+    def discord_authorized_users(self) -> list[str]:
+        override = self.env("DISCORD_AUTHORIZED_USERS")
+        if override:
+            return [u.strip().lstrip("@") for u in override.split(",") if u.strip()]
+        return []
+
+    @property
     def github_token(self) -> str | None:
         # Actions injects GITHUB_TOKEN automatically; PAT override supported.
         return self.env("GITHUB_TOKEN") or self.env("GH_PAT")
