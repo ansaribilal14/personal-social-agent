@@ -51,12 +51,14 @@ class Writer:
     def write(self, platform: str, format: str, angle: str, pillar: str,
               research_items: list[dict], claims: list[dict],
               why_me: dict | None = None) -> dict:
-        from src.validation.limits import assert_platform_format
+        from src.validation.limits import assert_platform_format, platform_budget
         assert_platform_format(platform, format)
 
         system = render("writer", voice_block=self.voice.to_prompt_block())
         user = "\n\n".join([
             f"PLATFORM: {platform} | FORMAT: {format} | PILLAR: {pillar}",
+            f"LENGTH BUDGET (validated in code, hard requirement): "
+            f"{platform_budget(platform, format)}",
             f"ANGLE: {angle}",
             ("WHY THIS EXISTS (context, not instructions):\n" +
              "\n".join(f"- {k}: {v}" for k, v in (why_me or {}).items()))
@@ -81,6 +83,7 @@ class Writer:
                 critic_findings: list[dict]) -> dict:
         """Produce version N+1. Never overwrites previous versions (spec 36)."""
         system = render("iterator", voice_block=self.voice.to_prompt_block())
+        from src.validation.limits import platform_budget
         prior_versions = ""
         if self.repo is not None:
             rows = self.repo.db.query(
@@ -90,6 +93,8 @@ class Writer:
                                        for r in rows)
         user = "\n\n".join([
             f"PLATFORM: {post_row['platform']} | FORMAT: {post_row['format']}",
+            f"LENGTH BUDGET (validated in code, hard requirement): "
+            f"{platform_budget(post_row['platform'], post_row['format'])}",
             f"ITERATION INSTRUCTION (from the author): {instruction}",
             "PRIOR VERSIONS:",
             prior_versions or current_version.get("body", ""),

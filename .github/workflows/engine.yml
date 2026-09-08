@@ -1,0 +1,111 @@
+name: engine
+
+# Autonomous creative cycle with GIT-BACKED STATE (no external DB required):
+# the SQLite state file lives at state/agent.db and is committed back after
+# every run. Operators who prefer Supabase/Postgres can keep the per-stage
+# workflows (research/ideas/...) with DATABASE_URL and disable this one.
+
+on:
+  schedule:
+    - cron: "0 3,11,19 * * *"   # 3x daily creative cycle (08:30 / 16:30 / 00:30 IST)
+    - cron: "0 2 * * 1"         # Mondays 02:00 UTC (07:30 IST): analytics + weekly report
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "full cycle or weekly report only"
+        type: choice
+        default: full
+        options: [full, weekly-report]
+      killswitch:
+        description: "apply kill switch and exit (audited control)"
+        type: choice
+        default: keep
+        options: [keep, "on", "off"]
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: state-db          # serialize ALL state mutations (engine + approval + publish)
+  cancel-in-progress: false
+
+jobs:
+  engine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      NIM_MODEL: ${{ secrets.NIM_MODEL }}
+      NIM_TIMEOUT_SECONDS: "180"
+      NIM_MAX_RETRIES: "3"
+      SQLITE_PATH: state/agent.db
+      GITHUB_TOKEN: ${{ github.token }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+      DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+      DISCORD_GUILD_ID: ${{ secrets.DISCORD_GUILD_ID }}
+      DISCORD_CHANNEL_GENERAL: ${{ secrets.DISCORD_CHANNEL_GENERAL }}
+      DISCORD_CHANNEL_REVIEW: ${{ secrets.DISCORD_CHANNEL_REVIEW }}
+      DISCORD_CHANNEL_ALERTS: ${{ secrets.DISCORD_CHANNEL_ALERTS }}
+      DISCORD_CHANNEL_ANALYTICS: ${{ secrets.DISCORD_CHANNEL_ANALYTICS }}
+      DISCORD_CHANNEL_ERRORS: ${{ secrets.DISCORD_CHANNEL_ERRORS }}
+      DISCORD_CHANNEL_STRATEGY: ${{ secrets.DISCORD_CHANNEL_STRATEGY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+
+      - name: Apply kill switch control (if requested)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.killswitch != 'keep' }}
+        env:
+          KS: ${{ inputs.killswitch }}
+        run: |
+          python - <<'PY'
+          import os
+          from src.db.connection import get_db
+          from src.db.repository import Repository
+          from src.security.kill_switch import enable, disable
+          repo = Repository(get_db())
+          (enable if os.environ["KS"] == "on" else disable)(repo)
+          print("kill switch ->", os.environ["KS"])
+          PY
+          echo "kill switch set to ${KS}; control-only run ends here." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Weekly report (Monday schedule or dispatch mode=weekly-report)
+        if: ${{ github.event.schedule == '0 2 * * 1' || inputs.mode == 'weekly-report' }}
+        run: |
+          python scripts/run_pipeline.py --stage analytics || true
+          python scripts/run_pipeline.py --stage weekly-report
+
+      - name: Creative cycle (research -> ideas -> generate -> quality -> review)
+        if: ${{ github.event.schedule != '0 2 * * 1' && inputs.mode != 'weekly-report' && (github.event_name == 'schedule' || inputs.killswitch == 'keep') }}
+        run: |
+          python scripts/run_pipeline.py --stage research
+          python scripts/run_pipeline.py --stage ideas
+          python scripts/run_pipeline.py --stage generate
+          python scripts/run_pipeline.py --stage quality
+          python scripts/run_pipeline.py --stage review
+
+      - name: Schedule + publish approved posts
+        if: ${{ github.event.schedule != '0 2 * * 1' && inputs.mode != 'weekly-report' && (github.event_name == 'schedule' || inputs.killswitch == 'keep') }}
+        env:
+          BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
+        run: |
+          python scripts/run_pipeline.py --stage schedule || true
+          python scripts/run_pipeline.py --stage publish || true
+
+      - name: Commit state
+        run: |
+          git config user.name "social-engine-bot"
+          git config user.email "ansaribilal14@users.noreply.github.com"
+          mkdir -p state
+          git add state/agent.db
+          if git diff --cached --quiet; then
+            echo "state unchanged" >> "$GITHUB_STEP_SUMMARY"
+          else
+            git commit -m "chore(state): engine run ${{ github.run_id }} (${{ github.event_name }})"
+            git pull --rebase origin "$GITHUB_REF_NAME" || true
+            git push origin HEAD:"$GITHUB_REF_NAME"
+          fi

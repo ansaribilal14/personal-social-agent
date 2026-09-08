@@ -41,7 +41,13 @@ research:
   max_items_per_run: 12
   freshness_days_fresh: 3
   freshness_days_recent: 21
-  feeds: []   # RSS/Atom URLs; keep [] to rely on NIM knowledge + evergreen prompts until you add feeds
+  feeds:
+    - https://techcrunch.com/category/artificial-intelligence/feed/
+    - https://www.theverge.com/rss/ai-artificial-intelligence/index.xml
+    - https://openai.com/news/rss.xml
+    - https://blog.google/technology/ai/rss/
+    - https://huggingface.co/blog/feed.xml
+    - https://www.technologyreview.com/feed/
 
 learning:
   # A learned preference is promoted to persistent editorial guidance only after

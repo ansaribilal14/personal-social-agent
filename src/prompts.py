@@ -16,8 +16,8 @@ PROMPTS_DIR = Path(__file__).resolve().parents[1] / "prompts"
 # Registry: prompt name -> version string. Keep in sync with library.yml.
 PROMPT_VERSIONS = {
     "researcher": "v2",
-    "strategist": "v1",
-    "writer": "v2",
+    "strategist": "v2",
+    "writer": "v3",
     "iterator": "v2",
     "analyst": "v1",
     "critic_originality": "v2",

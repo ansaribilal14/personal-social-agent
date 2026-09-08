@@ -8,10 +8,10 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write   # git-backed state mode: commits state/agent.db
 
 concurrency:
-  group: schedule
+  group: state-db   # serialize ALL state mutations (engine + approval + publish)
   cancel-in-progress: false
 
 jobs:
@@ -19,6 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
+      SQLITE_PATH: state/agent.db
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
     steps:
@@ -28,3 +29,16 @@ jobs:
           python-version: "3.12"
       - run: pip install -e .
       - run: python scripts/run_pipeline.py --stage schedule
+      - name: Commit state
+        run: |
+          git config user.name "social-engine-bot"
+          git config user.email "ansaribilal14@users.noreply.github.com"
+          mkdir -p state
+          git add state/agent.db
+          if git diff --cached --quiet; then
+            echo "state unchanged"
+          else
+            git commit -m "chore(state): schedule run ${{ github.run_id }}"
+            git pull --rebase origin "$GITHUB_REF_NAME" || true
+            git push origin HEAD:"$GITHUB_REF_NAME"
+          fi

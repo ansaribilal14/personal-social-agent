@@ -98,14 +98,26 @@ class AntiSlopEngine:
 
 
 def substantive_ratio(text: str) -> float:
-    """Share of sentences that carry a number, a claim verb, or an opinion marker.
-    Used by the 'actual content' heuristic (spec section 23 questions)."""
+    """Share of sentences that carry actual content (spec section 23 questions).
+
+    A sentence counts as substantive when it contains a number, a claim verb,
+    an opinion marker, an analysis noun (cost/trust/ownership/...), or a real
+    question word - and is long enough to carry meaning at all (>= 4 words,
+    so fragments like "Strong take." never count). Calibrated on live drafts:
+    dense analytical sentences without the original marker words must count,
+    or every well-written opinion post gets flagged as slop.
+    """
     sentences = [s for s in re.split(r"[.!?\n]", text or "") if s.strip()]
     if not sentences:
         return 0.0
     markers = re.compile(
         r"\d|\b(because|which|means|should|must|isn'?t|doesn'?t|actually|"
-        r"instead|problem|reason|evidence|data|results?|worse|better|wrong|right)\b",
+        r"instead|problem|reason|evidence|data|results?|worse|better|wrong|right|"
+        r"cost|trade|trade-?offs?|ownership|owning|profit|power|control|trust|"
+        r"privacy|surveillance|anxiety|risk|attention|asset|persists?|outlasts?|"
+        r"erodes?|overrides?|solves?|limits?|bottleneck|floor|"
+        r"who|why|how)\b",
         re.IGNORECASE)
-    hit = sum(1 for s in sentences if markers.search(s))
+    hit = sum(1 for s in sentences
+              if len(re.findall(r"[A-Za-z0-9']+", s)) >= 4 and markers.search(s))
     return hit / len(sentences)

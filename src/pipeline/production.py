@@ -178,7 +178,9 @@ class QualityPipeline(PipelineBase):
             claims = []
             for c in claims_raw:
                 from src.claims.ledger import ClaimLedger as _L
-                claim = _L.new_claim(c.get("text", ""), c.get("claim_type", "OPINION"),
+                from src.claims.ledger import normalize_claim_type
+                claim = _L.new_claim(c.get("text", ""),
+                                     normalize_claim_type(c.get("claim_type", "OPINION")),
                                      {"url": c.get("source_url")},
                                      confidence=c.get("confidence", 50))
                 claims.append(ledger.verify_against_research(claim, research))
@@ -188,7 +190,11 @@ class QualityPipeline(PipelineBase):
                 {"post_uid": str(v.get("post_id")), "body": v.get("body", ""),
                  "thread_posts": v.get("thread_posts")}
                 for v in self.repo.recent_variants(200)])
-            report = dup.check(version["body"], version.get("thread_posts"))
+            # Self-comparison guard: recent_variants includes the post being
+            # evaluated, which would make every fresh draft "duplicate itself"
+            # (similarity 1.00). Exclude the current post's own versions.
+            report = dup.check(version["body"], version.get("thread_posts"),
+                               exclude_uids={str(post_id)})
 
             context = {
                 "duplication": report,
@@ -223,8 +229,13 @@ class QualityPipeline(PipelineBase):
                     self.repo.log_event("quality.below_ranking", post_id=post_id,
                                         payload={"score": decision.overall_score})
             elif decision.decision == "REVISE":
-                self.repo.move_state(post_id, State.REVISING, actor="quality")
+                # The state machine has no QUALITY_REVIEW -> REVISING edge by
+                # design: revisions are requested by the author (/iterate),
+                # never auto-executed. Mark failed so the revision path applies.
                 self.repo.move_state(post_id, State.QUALITY_FAILED, actor="quality")
+                self.repo.log_event("quality.revise_recommended", post_id=post_id,
+                                    payload={"score": decision.overall_score,
+                                             "issues": decision.issues[:5]})
             else:
                 self.repo.move_state(post_id, State.QUALITY_FAILED, actor="quality")
             results.append({"post_id": post_id, **overall})

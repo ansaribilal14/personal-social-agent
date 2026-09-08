@@ -77,9 +77,16 @@ class IteratePipeline(PipelineBase):
             findings.extend(e.get("issues") or [])
         new = writer.iterate(post, version, instruction,
                              self.repo.recent_research(limit=6), findings)
+        from src.claims.ledger import normalize_claim_type
+        safe_claims = []
+        for c in (new.get("claims") or []):
+            if not isinstance(c, dict) or not str(c.get("text", "")).strip():
+                continue
+            c["claim_type"] = normalize_claim_type(c.get("claim_type", "OPINION"))
+            safe_claims.append(c)
         new_version = self.repo.add_version(
             post_id, new["body"], new.get("thread_posts"), new.get("prompt_versions"),
-            new.get("voice_snapshot"), new.get("claims") or [],
+            new.get("voice_snapshot"), safe_claims,
             iteration_instruction=instruction)
         self.repo.record_approval_event(post_id, post["current_version"], "ITERATED",
                                         actor, reason=instruction)

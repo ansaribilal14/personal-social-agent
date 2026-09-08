@@ -15,6 +15,19 @@ from dataclasses import dataclass, field
 CLAIM_TYPES = ("FACT", "OPINION", "INFERENCE", "SPECULATION", "PERSONAL_EXPERIENCE")
 
 
+def normalize_claim_type(value: str) -> str:
+    """Coerce an LLM-supplied claim type into the allowed enum.
+
+    Models occasionally invent types ("energy_reduction"). new_claim stays
+    strict; this shim keeps pipelines alive and maps unknown types to the
+    conservative OPINION so the fact gate still applies where it matters.
+    """
+    candidate = str(value or "").strip().upper().replace(" ", "_")
+    if candidate in CLAIM_TYPES:
+        return candidate
+    return "OPINION"
+
+
 @dataclass
 class Claim:
     claim_id: str

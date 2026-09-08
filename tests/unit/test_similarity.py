@@ -84,3 +84,20 @@ def test_helpers():
 
 def test_cosine_bow_zero_on_disjoint():
     assert cosine_bow(["a", "b"], ["c", "d"]) == 0.0
+
+
+def test_check_excludes_self_by_uid():
+    """A post must never be flagged as duplicating its own versions (regression:
+    quality engine pulled recent_variants including the evaluated post itself)."""
+    from src.similarity.engine import OriginalityEngine
+
+    body = "Reversible computing could flip the AI energy equation for good."
+    engine = OriginalityEngine(
+        thresholds={"near": 0.85, "semantic": 0.45, "hook": 0.75},
+        history=[{"post_uid": "7", "body": body, "thread_posts": None}],
+    )
+    # Without exclusion: exact self-match -> duplicated (documents the hazard).
+    assert engine.check(body).duplicated is True
+    # With self-exclusion (the fix): no duplication.
+    report = engine.check(body, exclude_uids={"7"})
+    assert report.duplicated is False
