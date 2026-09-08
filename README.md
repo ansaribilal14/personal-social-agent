@@ -9,12 +9,12 @@ built on **NVIDIA NIM** (generation), **Buffer** (publishing), **GitHub Actions*
 (orchestration), **Discord** (one-click human review — no GitHub account needed)
 and **PostgreSQL/Supabase** (state, optional — git-backed SQLite is the default).
 
-`Python 3.10+` · `153 tests, all green` · `MIT license` · `fail-safe OFF by default`
+`Python 3.10+` · `154 tests, all green` · `MIT license` · `fail-safe OFF by default`
 
 [![CI](https://github.com/ansaribilal14/personal-social-agent/actions/workflows/maintenance.yml/badge.svg)](https://github.com/ansaribilal14/personal-social-agent/actions/workflows/maintenance.yml)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Tests](https://img.shields.io/badge/tests-153%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-154%20passing-brightgreen)
 
 </div>
 
@@ -95,7 +95,7 @@ integrations/        nvidia (NIM), buffer (GraphQL), github, discord (bot +
 prompts/             versioned prompt library (library.yml)
 config/              platforms, strategy, voice, quality, schedule, security
 migrations/          PostgreSQL/Supabase schema (23 tables) + SQLite mirror
-tests/               153 tests: unit, integration, failure, red-team, e2e
+tests/               154 tests: unit, integration, failure, red-team, e2e
 scripts/             CLI entrypoints: run_pipeline.py, run_discord_bot.py,
                      review_comment_handler.py
 docs/                architecture, security, operations, testing, audits
@@ -110,7 +110,7 @@ cd personal-social-agent
 # Linux/macOS
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-python -m pytest tests/                 # 153 tests, no network needed
+python -m pytest tests/                 # 154 tests, no network needed
 
 # Smoke-run a pipeline stage (AI stages need an NVIDIA_API_KEY, see below)
 NVIDIA_API_KEY=nvapi-... python scripts/run_pipeline.py --stage maintenance
@@ -240,7 +240,7 @@ Repo → **Settings → Secrets and variables → Actions → New repository sec
 ### 7. First run & verification
 
 ```bash
-python -m pytest tests/                                        # offline, 153 tests
+python -m pytest tests/                                        # offline, 154 tests
 python scripts/run_pipeline.py --stage maintenance             # self-checks + Buffer verify
 python scripts/run_pipeline.py --stage research                # first AI stage (needs NIM key)
 ```
