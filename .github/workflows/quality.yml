@@ -1,12 +1,7 @@
 name: quality
 
 on:
-  workflow_run:
-    workflows: [generation]
-    types: [completed]
-  schedule:
-    - cron: "0 5 * * *"
-  workflow_dispatch:
+  workflow_dispatch:   # manual only - engine.yml owns the 3x daily cycle
 
 permissions:
   contents: read

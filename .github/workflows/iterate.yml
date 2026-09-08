@@ -41,3 +41,16 @@ jobs:
       - run: pip install -e .
       - name: Handle /iterate (auth + versioning + quality)
         run: python scripts/review_comment_handler.py --mode iterate
+      - name: Commit state (git-backed mode; otherwise iteration is lost)
+        run: |
+          git config user.name "social-engine-bot"
+          git config user.email "ansaribilal14@users.noreply.github.com"
+          mkdir -p state
+          git add state/agent.db
+          if git diff --cached --quiet; then
+            echo "state unchanged"
+          else
+            git commit -m "chore(state): iterate on issue ${{ github.event.issue.number }}"
+            git pull --rebase origin "$GITHUB_REF_NAME" || true
+            git push origin HEAD:"$GITHUB_REF_NAME"
+          fi
