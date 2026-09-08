@@ -6,15 +6,15 @@
 
 An open-source, production-grade editorial pipeline for **X (Twitter) + Threads**
 built on **NVIDIA NIM** (generation), **Buffer** (publishing), **GitHub Actions**
-(orchestration), **GitHub Issues + Discord** (human review) and
-**PostgreSQL/Supabase** (state).
+(orchestration), **Discord** (one-click human review — no GitHub account needed)
+and **PostgreSQL/Supabase** (state, optional — git-backed SQLite is the default).
 
-`Python 3.10+` · `135 tests, all green` · `MIT license` · `fail-safe OFF by default`
+`Python 3.10+` · `153 tests, all green` · `MIT license` · `fail-safe OFF by default`
 
 [![CI](https://github.com/ansaribilal14/personal-social-agent/actions/workflows/maintenance.yml/badge.svg)](https://github.com/ansaribilal14/personal-social-agent/actions/workflows/maintenance.yml)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Tests](https://img.shields.io/badge/tests-135%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-153%20passing-brightgreen)
 
 </div>
 
@@ -38,8 +38,8 @@ flowchart LR
     A[Research\nNVIDIA NIM] --> B[Ideas\nscored in code]
     B --> C[Generation\nyour voice]
     C --> D[Quality gate\n10 critics + validators]
-    D --> E[Review\nGitHub Issue + Discord card]
-    E -->|/approve| F[Scheduling\ncollision-protected]
+    D --> E[Review\nDiscord card: react or type]
+    E -->|approve| F[Scheduling\ncollision-protected]
     F --> G[Outbox\nidempotent]
     G --> H[Buffer\nX + Threads live]
     H --> I[Analytics\nweekly report]
@@ -58,8 +58,10 @@ flowchart LR
 4. **Quality** — ten editorial critics + deterministic validators + anti-slop
    engine + originality engine compute PASS/FAIL/REVISE. Nothing borderline
    ships.
-5. **Review** — top candidates become GitHub issues **and** Discord review
-   cards. Approve/reject/iterate from either surface.
+5. **Review** — approved-by-critics posts become Discord review cards in
+   `#social-review`. **Approve with one click (✅ reaction)**, reject with ❌,
+   or type `iterate <ID> <instruction>` as a plain message. GitHub issue
+   review is optional (off by default in `config/review.yml`).
 6. **Publishing** — approved versions go through an idempotent outbox to
    Buffer's (live-verified) GraphQL API with collision-protected scheduling
    (Asia/Kolkata windows), bounded retries and failure alerts to Discord.
@@ -93,7 +95,7 @@ integrations/        nvidia (NIM), buffer (GraphQL), github, discord (bot +
 prompts/             versioned prompt library (library.yml)
 config/              platforms, strategy, voice, quality, schedule, security
 migrations/          PostgreSQL/Supabase schema (23 tables) + SQLite mirror
-tests/               135 tests: unit, integration, failure, red-team, e2e
+tests/               153 tests: unit, integration, failure, red-team, e2e
 scripts/             CLI entrypoints: run_pipeline.py, run_discord_bot.py,
                      review_comment_handler.py
 docs/                architecture, security, operations, testing, audits
@@ -108,7 +110,7 @@ cd personal-social-agent
 # Linux/macOS
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-python -m pytest tests/                 # 135 tests, no network needed
+python -m pytest tests/                 # 153 tests, no network needed
 
 # Smoke-run a pipeline stage (AI stages need an NVIDIA_API_KEY, see below)
 NVIDIA_API_KEY=nvapi-... python scripts/run_pipeline.py --stage maintenance
@@ -168,34 +170,38 @@ Notes:
   has no reply-chain primitive; content is preserved verbatim.
 - Extra channels you connected (e.g. Instagram) are left untouched.
 
-### 4. Discord bot (review surface + alerts)
+### 4. Discord (review surface + alerts)
+
+The review flow needs **no bot process and no GitHub account**: review cards
+are posted to `#social-review`, you approve by reacting ✅ on the card (or
+typing `approve <ID>`), and the `discord-approval.yml` Actions workflow picks
+decisions up every 5 minutes. A bot token is still required to post as the
+bot and read reactions:
 
 1. Go to **https://discord.com/developers/applications** → **New Application**
    → name it (e.g. "Social Automation Bot") → **Bot** tab → **Reset Token**
    → copy it → `DISCORD_BOT_TOKEN`.
-2. Privileged intents: leave **Message Content OFF** (the bot uses slash
-   commands only — nothing privileged required).
+2. Privileged intents: leave **Message Content OFF** (reactions + REST only —
+   nothing privileged required).
 3. Invite it: **OAuth2 → URL Generator** → scopes `bot` +
-   `applications.commands`; permissions: Send Messages, Embed Links, Read
+   `applications.commands`; permissions: Send Messages, Add Reactions, Read
    Message History → open the generated URL and add the bot to your server.
    Template (replace `YOUR_CLIENT_ID` from OAuth2 → Client ID):
-   `https://discord.com/oauth2/authorize?client_id=YOUR_CLIENT_ID&permissions=116736&scope=bot+applications.commands`
+   `https://discord.com/oauth2/authorize?client_id=YOUR_CLIENT_ID&permissions=116800&scope=bot+applications.commands`
 4. Enable **Developer Mode** in Discord (Settings → Advanced), then right-click
-   your server → **Copy Server ID** → `DISCORD_GUILD_ID` (makes slash commands
-   appear instantly).
+   your server → **Copy Server ID** → `DISCORD_GUILD_ID` (also used to
+   authorize the guild owner automatically).
 5. Create channels and copy their IDs into the matching env vars:
    `DISCORD_CHANNEL_REVIEW` (review cards), `DISCORD_CHANNEL_ALERTS`,
    `DISCORD_CHANNEL_ANALYTICS`, `DISCORD_CHANNEL_ERRORS`,
    `DISCORD_CHANNEL_GENERAL`, `DISCORD_CHANNEL_STRATEGY`.
-6. Authorize reviewers: `DISCORD_AUTHORIZED_USERS=yourname,othername`
-   (comma-separated Discord usernames or IDs). The guild owner is also
-   accepted unless `DISCORD_ALLOW_GUILD_OWNER=false`.
-7. Run it: `python scripts/run_discord_bot.py` → first start syncs the slash
-   commands instantly (guild mode) and you should see
+6. Authorize reviewers: `DISCORD_AUTHORIZED_USERS=<discord-user-ids-or-usernames>`
+   (comma-separated; user IDs are the most reliable). The guild owner is also
+   accepted automatically unless `DISCORD_ALLOW_GUILD_OWNER=false`.
+7. *(Optional, slash commands only)* run the interactive bot 24/7:
+   `python scripts/run_discord_bot.py` (or docker-compose) → first start syncs
+   the slash commands instantly (guild mode) and you should see
    `Discord bot logged in as ...`.
-
-Alternatively (bot-less): create a channel **Webhook** and set
-`DISCORD_WEBHOOK_URL` — notifications then work without the interactive bot.
 
 ### 5. Database (state)
 
@@ -234,7 +240,7 @@ Repo → **Settings → Secrets and variables → Actions → New repository sec
 ### 7. First run & verification
 
 ```bash
-python -m pytest tests/                                        # offline, 135 tests
+python -m pytest tests/                                        # offline, 153 tests
 python scripts/run_pipeline.py --stage maintenance             # self-checks + Buffer verify
 python scripts/run_pipeline.py --stage research                # first AI stage (needs NIM key)
 ```
@@ -263,8 +269,9 @@ schedule and publish call.
 | `idea-discovery.yml` | after research | scores ideas, applies "Why me?" gate |
 | `generation.yml` | after ideas | drafts posts in your voice |
 | `quality.yml` | after generation | 10 critics + validators, PASS/FAIL/REVISE |
-| `review.yml` | after quality | opens GitHub issues + sends Discord review cards |
-| `approval.yml` | `issue_comment` created | processes `/approve` `/reject` `/iterate` on issues |
+| `review.yml` | after quality | sends Discord review cards (GitHub issues optional) |
+| `discord-approval.yml` | every 5 min | reads Discord: ✅/❌ reactions + typed commands → approvals |
+| `approval.yml` | `issue_comment` created | processes `/approve` `/reject` on issues (optional surface) |
 | `iterate.yml` | after iterate requests | drafts a new version from your instruction |
 | `schedule.yml` | periodic | APPROVED → collision-free slots (Asia/Kolkata) |
 | `publish.yml` | periodic | outbox → Buffer (idempotent, kill-switch checked) |
@@ -272,31 +279,37 @@ schedule and publish call.
 | `weekly-report.yml` | weekly | sample-size-guarded report → Discord |
 | `maintenance.yml` | hourly + push | integration verification, self-tests |
 
-### Reviewing on GitHub Issues
+### Reviewing on Discord — the default, no GitHub needed
 
-Comment on a review issue (first matching line wins; authorized users only):
+Everything happens in your `#social-review` channel:
+
+**One-click:** react on the review card
+- ✅ → approve that exact version
+- ❌ → reject it
+
+**Or type a plain message** (leading `/` optional):
 
 ```
-/approve
-/reject the hook is weak
-/iterate make it more concrete, cite the benchmark
+approve X-2026-AB12C
+reject X-2026-AB12C the hook is weak
+iterate X-2026-AB12C make it more concrete, cite the benchmark
 ```
 
-Version safety: approving v1 never approves v2 — the exact approved version is
-what publishes later.
+The `discord-approval.yml` workflow polls the channel every 5 minutes, drives
+the same audited state machine, and replies with a confirmation. Accepted
+`iterate` requests are rewritten immediately and the new version comes back
+to review as a fresh card.
 
-### Reviewing on Discord
+Version safety: a ✅ on a card approves **the version printed on that card**;
+if the post was iterated since, the reaction is refused with an explanation —
+approving v1 never approves v2.
 
-| Command | What it does |
-|---|---|
-| `/queue` | posts waiting for approval (UID, platform, score) |
-| `/show <uid>` | read the exact current version |
-| `/approve <uid>` | approve this version (WAITING_APPROVAL only) |
-| `/reject <uid> [reason]` | reject |
-| `/iterate <uid> <instruction>` | request a new version |
-| `/killswitch on\|off\|status` | global publishing switch (audited) |
-| `/status` | kill switch + per-state counts + recent events |
-| `/ping`, `/help` | liveness, command reference |
+Optional: set `surfaces: [discord, github]` in `config/review.yml` to ALSO get
+an audit-trail issue per post with `/approve`-style comments.
+
+**Slash commands** (only when the bot process runs 24/7 via docker-compose):
+`/queue` `/show <uid>` `/approve <uid>` `/reject <uid> [reason]`
+`/iterate <uid> <instruction>` `/killswitch on|off|status` `/status` `/ping`.
 
 ### Local CLI
 

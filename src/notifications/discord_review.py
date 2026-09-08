@@ -36,15 +36,20 @@ def _send_to(purpose: str, text: str) -> bool:
 
 def format_review_card(post: dict, version: dict, scores: dict,
                        editorial_score: int, recommended_slot: str,
-                       issue_url: str) -> str:
-    """The review-card format from spec section 32 (chunked by the client)."""
+                       issue_url: str | None = None) -> str:
+    """The review-card format (chunked by the client).
+
+    Approval is Discord-native: react on this message, or type a command.
+    A GitHub issue link is appended only when the github surface is enabled.
+    """
     sep = "\u2501" * 20
     lines = [
         sep, "NEW POST FOR REVIEW", sep, "",
         f"ID: {post['post_uid']}", "",
         f"Platform: {post['platform'].upper()}",
         f"Format: {post['format'].upper()}",
-        f"Pillar: {post.get('pillar', '-')}", "",
+        f"Pillar: {post.get('pillar', '-')}",
+        f"Version: v{post.get('current_version', '-')}", "",
         f"Editorial score: {editorial_score}", "",
         "WHY THIS EXISTS:",
         str(version.get("why_this_exists") or "-")[:300], "", sep,
@@ -66,24 +71,52 @@ def format_review_card(post: dict, version: dict, scores: dict,
     lines.append("")
     lines.append(f"Recommended: {recommended_slot}")
     lines.append("")
-    lines.append(f"GitHub Review: {issue_url}")
-    lines.append("Commands: /approve | /reject | /iterate <instruction>")
-    lines.append("(in Discord: /approve <uid>, or on GitHub under the issue)")
+    lines.append("HOW TO DECIDE (all right here in Discord):")
+    lines.append("\u2705 react on THIS message to approve it")
+    lines.append("\u274c react to reject it")
+    lines.append("iterate <ID> <instruction> - request changes (type it here)")
+    lines.append(f"e.g. iterate {post['post_uid']} make the hook punchier")
+    if issue_url:
+        lines.append("")
+        lines.append(f"GitHub Review (optional audit trail): {issue_url}")
     return "\n".join(lines)
 
 
 def send_review_card(repo: Repository, post: dict, version: dict, scores: dict,
                      editorial_score: int, recommended_slot: str,
-                     issue_url: str) -> bool:
+                     issue_url: str | None = None,
+                     client: DiscordClient | None = None) -> str | None:
+    """Post the review card; return the Discord message id (None if unavailable).
+
+    The message id lets the poller (src/review/discord_poller.py) read card
+    reactions for one-click approve/reject. Returns None when Discord is not
+    configured or the send was transiently rejected (next run retries).
+    """
     if not _repo_enabled():
         repo.log_event("discord.skipped_not_configured", post_id=post["id"])
-        return False
+        return None
     text = format_review_card(post, version, scores, editorial_score,
                               recommended_slot, issue_url)
-    ok = _send_to("review", text)
-    repo.log_event("discord.review_card_sent", post_id=post["id"],
-                   payload={"issue_url": issue_url})
-    return ok
+    client = client or DiscordClient()
+    try:
+        channel = None
+        try:
+            from src.config import get_config as _cfg
+            channel = _cfg().discord_channel("review")
+        except Exception:
+            channel = None
+        if channel:
+            message_id = client.post_message(channel, text)
+        else:
+            message_id = client.send_to("review", text) and None
+        repo.log_event("discord.review_card_sent", post_id=post["id"],
+                       payload={"issue_url": issue_url,
+                                "message_id": message_id})
+        return message_id
+    except Exception as exc:
+        repo.log_event("discord.review_card_failed", post_id=post["id"],
+                       severity="warn", payload={"error": type(exc).__name__})
+        return None
 
 
 def notify_publish_failed(repo: Repository, entry: dict, error: str) -> bool:

@@ -1,0 +1,18 @@
+# Review surfaces - where WAITING_APPROVAL posts are offered for human review.
+#
+# discord (recommended): a review card is posted in the Discord #social-review
+#   channel. Approval is ONE CLICK: react with the approve emoji on the card.
+#   Rejections likewise; iterations are requested with a plain message
+#   "iterate <POST_UID> <instruction>". No GitHub account or issue needed.
+# github (optional): ALSO open an "editorial-review" issue per post and accept
+#   /approve /reject /iterate comments on it. Useful for public audit trails.
+#
+# Both surfaces drive the same DB state machine; the DB remains the only
+# authority. Kill-switch behaviour is unchanged (approval never requires the
+# switch to be on; scheduling/publishing does).
+
+surfaces: [discord]
+
+reactions:
+  approve: "\u2705"   # check mark
+  reject: "\u274c"    # cross mark

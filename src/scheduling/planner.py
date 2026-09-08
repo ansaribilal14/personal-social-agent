@@ -74,7 +74,27 @@ class SchedulingEngine:
             "SELECT COUNT(*) AS n FROM schedules WHERE platform=:p "
             "AND scheduled_at >= :a AND scheduled_at < :b",
             {"p": platform, "a": day_start.isoformat(), "b": day_end.isoformat()})
-        return int(rows[0]["n"]) < max_per_day
+        if int(rows[0]["n"]) >= max_per_day:
+            return False
+        return self._within_total_daily_cap(candidate)
+
+    def _within_total_daily_cap(self, candidate: datetime) -> bool:
+        """Cross-platform daily cap (schedule.yml defaults.posts_per_day_total).
+
+        Previously this key was defined but never enforced, so the only real
+        ceiling was each platform's own max_per_day (e.g. 3+3=6/day total).
+        Absent/invalid config disables this check (falls back to per-platform caps only).
+        """
+        total_cap = (self.cfg.get("defaults", {}) or {}).get("posts_per_day_total")
+        if total_cap is None:
+            return True
+        total_cap = int(total_cap)
+        day_start = candidate.replace(hour=0, minute=0, second=0, microsecond=0)
+        day_end = day_start + timedelta(days=1)
+        rows = self.repo.db.query(
+            "SELECT COUNT(*) AS n FROM schedules WHERE scheduled_at >= :a "
+            "AND scheduled_at < :b", {"a": day_start.isoformat(), "b": day_end.isoformat()})
+        return int(rows[0]["n"]) < total_cap
 
     def find_slot(self, platform: str, now: datetime | None = None) -> Slot:
         """Deterministically pick the earliest clean slot inside windows."""

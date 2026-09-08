@@ -1,0 +1,67 @@
+name: discord-approval
+
+# Discord-native review intake: processes approvals WITHOUT GitHub issues.
+# Every 5 minutes it reads the #social-review channel via the Discord REST API:
+#   - one-click card reactions (approve / reject emoji on a review card)
+#   - typed commands: "approve <UID>" / "reject <UID> [reason]" /
+#     "iterate <UID> <instruction>" (leading slash optional)
+# Accepted iterate requests are executed immediately (NIM) and the new version
+# flows through quality + review so a fresh card appears automatically.
+#
+# SECURITY: identical model to the rest of the review system - the DB is the
+# only authority, Discord content arrives via env/REST as untrusted DATA,
+# authorization is resolved in code (DISCORD_AUTHORIZED_USERS + guild owner),
+# and the state machine validates every transition. Fail-safe: with no
+# authorized users resolvable, the poller refuses to act.
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write   # git-backed state mode: commits state/agent.db
+
+concurrency:
+  group: state-db   # serialize ALL state mutations (engine + approval + publish)
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SQLITE_PATH: state/agent.db
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      NIM_MODEL: ${{ secrets.NIM_MODEL }}
+      NIM_TIMEOUT_SECONDS: "180"
+      NIM_MAX_RETRIES: "3"
+      DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+      DISCORD_GUILD_ID: ${{ secrets.DISCORD_GUILD_ID }}
+      DISCORD_CHANNEL_REVIEW: ${{ secrets.DISCORD_CHANNEL_REVIEW }}
+      DISCORD_CHANNEL_ALERTS: ${{ secrets.DISCORD_CHANNEL_ALERTS }}
+      DISCORD_CHANNEL_ERRORS: ${{ secrets.DISCORD_CHANNEL_ERRORS }}
+      DISCORD_AUTHORIZED_USERS: ${{ secrets.DISCORD_AUTHORIZED_USERS }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+      - name: Process Discord reactions and commands
+        run: python scripts/discord_review_poller.py
+      - name: Commit state
+        run: |
+          git config user.name "social-engine-bot"
+          git config user.email "ansaribilal14@users.noreply.github.com"
+          mkdir -p state
+          git add state/agent.db
+          if git diff --cached --quiet; then
+            echo "state unchanged"
+          else
+            git commit -m "chore(state): discord approval run ${{ github.run_id }}"
+            git pull --rebase origin "$GITHUB_REF_NAME" || true
+            git push origin HEAD:"$GITHUB_REF_NAME"
+          fi

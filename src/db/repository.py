@@ -82,6 +82,10 @@ class Repository:
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
             params)
 
+    def delete_setting(self, key: str) -> None:
+        """Remove a setting row entirely (get_setting falls back to default)."""
+        self.db.execute("DELETE FROM system_settings WHERE key=:k", {"k": key})
+
     # -------------------------------------------------------------- research
     def save_research_item(self, item: dict, workflow_run: str | None = None) -> int:
         if item.get("source_url"):

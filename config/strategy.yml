@@ -38,16 +38,32 @@ editorial_ranking:
 
 research:
   # "What is worth having something to say about?" - never "what is trending?"
-  max_items_per_run: 12
+  max_items_per_run: 18        # raised from 12: now 11 feeds across 3 pillars (was 6 feeds, AI-only)
   freshness_days_fresh: 3
   freshness_days_recent: 21
+  # NOTE: research items are pooled and handed to idea-generation alongside ALL
+  # pillar names (src/pipeline/production.py) - the LLM assigns pillar per idea.
+  # Previously every feed was AI-only, so Technology/Building/Discoveries (45%
+  # combined weight) had almost no non-AI raw material to draw ideas from.
+  # Feeds below are grouped by the pillar they primarily feed; Opinions and
+  # Personal intentionally have none - those pillars should come from your own
+  # takes/experience, not from research items.
   feeds:
+    # AI (weight 30)
     - https://techcrunch.com/category/artificial-intelligence/feed/
     - https://www.theverge.com/rss/ai-artificial-intelligence/index.xml
     - https://openai.com/news/rss.xml
     - https://blog.google/technology/ai/rss/
     - https://huggingface.co/blog/feed.xml
+    # Technology (weight 20) - broader than just AI
     - https://www.technologyreview.com/feed/
+    - https://arstechnica.com/information-technology/feed/
+    - https://www.theverge.com/rss/index.xml
+    # Building (weight 20) - startups / shipping / indie building
+    - https://news.ycombinator.com/rss
+    - https://hnrss.org/show
+    # Discoveries (weight 10) - broader interesting/science finds
+    - https://arstechnica.com/science/feed/
 
 learning:
   # A learned preference is promoted to persistent editorial guidance only after

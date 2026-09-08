@@ -15,6 +15,7 @@ always use the bot token when present.
 from __future__ import annotations
 
 import os
+import urllib.parse
 
 import requests
 
@@ -84,6 +85,85 @@ class DiscordClient:
         if not channel:
             raise DiscordError(f"no channel configured for purpose '{purpose}'")
         return self.send_to_channel(channel, content, embed=embed)
+
+    # ------------------------------------------------------- REST helpers for
+    # the reaction/message-based review intake (Discord-native approvals).
+    def post_message(self, channel_id: str, content: str,
+                     embed: dict | None = None) -> str | None:
+        """Post ONE message and return its id (None on transient failure).
+
+        Unlike send_to_channel this never chunks: callers pass short payloads.
+        Returns None on rate-limit/server errors so callers can retry later;
+        raises DiscordError on permanent rejections (bad channel, bad body).
+        """
+        if not channel_id:
+            raise DiscordError("no target channel id")
+        body: dict = {"content": (content or "")[:MAX_CONTENT]}
+        if embed is not None:
+            body["embeds"] = [embed]
+        resp = self.session.post(f"{API_BASE}/channels/{channel_id}/messages",
+                                 json=body, headers=self._bot_headers(), timeout=20)
+        if resp.status_code == 200:
+            return str(resp.json().get("id"))
+        if resp.status_code in (429, 500, 502, 503):
+            return None
+        raise DiscordError(f"discord rejected channel message HTTP {resp.status_code}")
+
+    def fetch_messages(self, channel_id: str, limit: int = 50,
+                       after_id: str | None = None) -> list[dict]:
+        """Fetch channel messages (newest first) as raw dicts; [] on transient failure."""
+        if not channel_id:
+            raise DiscordError("no target channel id")
+        params: dict = {"limit": min(int(limit), 100)}
+        if after_id:
+            params["after"] = str(after_id)
+        resp = self.session.get(f"{API_BASE}/channels/{channel_id}/messages",
+                                params=params, headers=self._bot_headers(), timeout=20)
+        if resp.status_code == 200:
+            return list(resp.json())
+        if resp.status_code in (429, 500, 502, 503):
+            return []
+        raise DiscordError(f"discord rejected history fetch HTTP {resp.status_code}")
+
+    def reaction_users(self, channel_id: str, message_id: str, emoji: str,
+                       limit: int = 25) -> list[dict]:
+        """Users who reacted with `emoji` (unicode is URL-encoded here); [] on transient failure."""
+        if not (channel_id and message_id):
+            raise DiscordError("reaction lookup needs channel id and message id")
+        quoted = urllib.parse.quote(emoji, safe="")
+        resp = self.session.get(
+            f"{API_BASE}/channels/{channel_id}/messages/{message_id}/reactions/{quoted}",
+            params={"limit": min(int(limit), 100)},
+            headers=self._bot_headers(), timeout=20)
+        if resp.status_code == 200:
+            return list(resp.json())
+        if resp.status_code in (429, 500, 502, 503):
+            return []
+        raise DiscordError(f"discord rejected reaction fetch HTTP {resp.status_code}")
+
+    def remove_own_reaction(self, channel_id: str, message_id: str, emoji: str) -> bool:
+        """Remove the bot's own reaction (used to acknowledge processed commands)."""
+        if not (channel_id and message_id):
+            return False
+        quoted = urllib.parse.quote(emoji, safe="")
+        resp = self.session.delete(
+            f"{API_BASE}/channels/{channel_id}/messages/{message_id}/reactions/{quoted}/@me",
+            headers=self._bot_headers(), timeout=20)
+        return resp.status_code == 204
+
+    def guild_owner_id(self, guild_id: str) -> str | None:
+        """Guild owner's user id, or None if unavailable (transient/permissions)."""
+        if not guild_id:
+            return None
+        try:
+            resp = self.session.get(f"{API_BASE}/guilds/{guild_id}",
+                                    headers=self._bot_headers(), timeout=20)
+            if resp.status_code == 200:
+                owner = resp.json().get("owner_id")
+                return str(owner) if owner else None
+        except Exception:
+            pass
+        return None
 
     # ------------------------------------------------------- compatibility
     def send(self, content: str) -> bool:

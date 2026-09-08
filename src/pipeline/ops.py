@@ -11,18 +11,36 @@ from src.state.machine import State
 class ReviewPipeline(PipelineBase):
     stage = "review"
 
+    def __init__(self, repo: Repository, nim=None, discord_client=None):
+        super().__init__(repo, nim)
+        self._discord = discord_client   # injectable mock for tests
+
     def run(self) -> dict:
-        """Send WAITING_APPROVAL candidates to GitHub + Discord (spec 26, 32)."""
+        """Offer WAITING_APPROVAL candidates for human review.
+
+        Surfaces come from config/review.yml `surfaces` (default: discord).
+        - discord: review card in #social-review; the card's message id is
+          registered so the poller can accept one-click reactions and typed
+          commands (scripts/discord_review_poller.py).
+        - github (optional): ALSO open an editorial-review issue.
+        GitHub being down or disabled never blocks Discord review.
+        """
         from src.notifications.discord_review import send_review_card
         from src.review.lifecycle import ReviewLifecycle
-        gh = self._github()
+        cfg = get_config().section("review") or {}
+        surfaces = cfg.get("surfaces") or ["discord"]
+        want_github = "github" in surfaces
+
+        gh = None
+        if want_github:
+            try:
+                gh = self._github_soft()
+            except Exception:
+                gh = None
         lifecycle = ReviewLifecycle(self.repo, gh)
         sent = 0
+        issues = 0
         for post in self.repo.posts_in_state(State.WAITING_APPROVAL.value):
-            if lifecycle.find_open_review_issue(post["post_uid"]) is not None:
-                # already queued for review - do not spam duplicate issues/cards
-                self.repo.log_event("review.duplicate_skipped", post_id=post["id"])
-                continue
             version = self.repo.get_version(post["id"], post["current_version"])
             evals = self.repo.db.query(
                 "SELECT critic, score, passed FROM quality_evaluations "
@@ -33,9 +51,34 @@ class ReviewPipeline(PipelineBase):
                 e["passed"] for e in evals if e["critic"] == "antislop") if evals else False
             scores["platform_pass"] = all(
                 e["passed"] for e in evals if e["critic"] == "platform_fit") if evals else False
-            issue = lifecycle.create_review_issue(
-                post, version, scores, {"overall_score": post.get("editorial_score") or 0})
-            issue_url = f"https://github.com/{get_config().github_repo}/issues/{issue['number']}"
+
+            card_key = f"review_card:{post['post_uid']}"
+            # dedup guard: a card for THIS version was already posted -> skip
+            existing = self.repo.get_setting(card_key)
+            if isinstance(existing, dict) and \
+                    int(existing.get("version", -1)) == int(post["current_version"]):
+                self.repo.log_event("review.duplicate_skipped", post_id=post["id"])
+                continue
+
+            issue_url = None
+            if want_github and gh is not None:
+                if lifecycle.find_open_review_issue(post["post_uid"]) is not None:
+                    issue = lifecycle.find_open_review_issue(post["post_uid"])
+                    issue_url = f"https://github.com/{get_config().github_repo}/issues/{issue['number']}"
+                    issues += 1
+                else:
+                    try:
+                        issue = lifecycle.create_review_issue(
+                            post, version, scores,
+                            {"overall_score": post.get("editorial_score") or 0})
+                        issue_url = (f"https://github.com/{get_config().github_repo}"
+                                     f"/issues/{issue['number']}")
+                        issues += 1
+                    except Exception as exc:
+                        self.repo.log_event("review.issue_failed", post_id=post["id"],
+                                            severity="warn",
+                                            payload={"error": type(exc).__name__})
+
             # recommended slot (deterministic; scheduling engine, no DB writes)
             from src.scheduling.planner import SchedulingEngine, NoSlotAvailable
             try:
@@ -43,11 +86,31 @@ class ReviewPipeline(PipelineBase):
                 slot_str = slot.at.isoformat()
             except NoSlotAvailable:
                 slot_str = "no clean slot in window (collision protection)"
-            send_review_card(self.repo, post, version, scores,
-                             post.get("editorial_score") or 0, slot_str, issue_url)
+
+            message_id = send_review_card(
+                self.repo, post, version, scores,
+                post.get("editorial_score") or 0, slot_str, issue_url,
+                client=self._discord)
+            if message_id:
+                # register for one-click reaction approvals (discord_poller)
+                self.repo.set_setting(card_key, {
+                    "message_id": message_id,
+                    "version": int(post["current_version"])})
             sent += 1
         self.succeed()
-        return {"review_cards_sent": sent}
+        return {"review_cards_sent": sent, "review_issues": issues}
+
+    def _github_soft(self):
+        """GitHub client or None - review must not depend on GitHub availability."""
+        try:
+            from integrations.github.client import GitHubClient
+            cfg = get_config()
+            if cfg.github_token and cfg.github_repo:
+                return GitHubClient(cfg.github_token, cfg.github_repo)
+        except Exception as exc:
+            self.repo.log_event("review.github_unavailable", severity="warn",
+                                payload={"error": type(exc).__name__})
+        return None
 
     def _github(self):
         try:

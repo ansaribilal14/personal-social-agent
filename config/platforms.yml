@@ -37,7 +37,7 @@ threads:
     max_posts: 50              # Threads API allows attaching replies; conservative cap
     max_total_length: 8000
   hashtags:
-    recommended_max: 5         # Threads docs: one topic tag per post; treat >5 as slop
+    recommended_max: 1         # Threads supports one topic tag per post; treat >1 as slop
   scheduling:
     windows:
       - { days: [Mon, Tue, Wed, Thu, Fri], start: "08:00", end: "10:30" }

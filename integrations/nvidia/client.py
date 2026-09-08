@@ -158,22 +158,27 @@ class NIMClient:
                         temperature: float = 0.2, max_tokens: int = 2048) -> dict:
         """Request a JSON object; validate it is a dict; typed failure otherwise.
 
-        Malformed output is retried, then raises NimInvalidJSON. Callers must
-        never let malformed output control publication (spec section 48).
+        Malformed output is retried with jitter (temperature bump + larger
+        token budget each attempt - the common failure mode is truncated or
+        rambled JSON), then raises NimInvalidJSON. Callers must never let
+        malformed output control publication (spec section 48).
         """
         prompt = (
             "Respond with a single valid JSON object and nothing else. "
             "No markdown fences, no commentary.\n\n" + user
         )
         last_error: Exception | None = None
-        for _ in range(2):
-            text = self.chat(system, prompt, model=model, temperature=temperature,
-                             max_tokens=max_tokens)
+        for attempt in range(3):
+            text = self.chat(system, prompt, model=model,
+                             temperature=temperature + attempt * 0.2,
+                             max_tokens=max_tokens + attempt * 1024)
             parsed = _extract_json(text)
             if isinstance(parsed, dict):
                 return parsed
             last_error = parsed if isinstance(parsed, Exception) else \
                 NimInvalidJSON("model output was not a JSON object")
+            if attempt < 2:
+                time.sleep(1.5)
         raise last_error or NimInvalidJSON("unparseable model output")
 
 

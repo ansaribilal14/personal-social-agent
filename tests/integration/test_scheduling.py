@@ -80,6 +80,21 @@ def test_recent_published_post_blocks_close_slot(repo):
     assert gap >= 240
 
 
+def test_cross_platform_total_daily_cap_enforced(repo):
+    """schedule.yml defaults.posts_per_day_total must actually be enforced,
+    not just declared (regression: this key used to be dead config)."""
+    eng = SchedulingEngine(repo, None, {"defaults": {"posts_per_day_total": 2},
+                                        "collision": {}, "lookahead": {"schedule_window_hours": 48}})
+    now = datetime(2026, 9, 6, 6, 0, tzinfo=TZ)
+    s1 = eng.find_slot("x", now=now)
+    _seed(repo, "x", s1.at.isoformat())
+    s2 = eng.find_slot("threads", now=now)
+    _seed(repo, "threads", s2.at.isoformat())
+    # a 3rd post that day (any platform) must roll to the next day
+    s3 = eng.find_slot("x", now=now)
+    assert s3.at.date() > s1.at.date()
+
+
 def test_timezone_is_kolkata(repo):
     eng = SchedulingEngine(repo, None, None)
     assert str(eng.tz) == "Asia/Kolkata"
