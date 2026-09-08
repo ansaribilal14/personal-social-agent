@@ -205,6 +205,12 @@ class QualityPipeline(PipelineBase):
                     get_config().quality.get("anti_slop", {}).get(
                         "min_substantive_ratio", 0.6)),
             }
+            if str(post["state"]) == State.QUALITY_FAILED.value:
+                # retry path: the machine requires QUALITY_FAILED -> REVISING
+                # before re-review (direct QUALITY_FAILED -> QUALITY_REVIEW is
+                # an invalid transition - found live, first real failure).
+                self.repo.move_state(post_id, State.REVISING, actor="quality",
+                                     workflow_run=self.run_id)
             self.repo.move_state(post_id, State.QUALITY_REVIEW, actor="quality",
                                  workflow_run=self.run_id)
             decision = engine.evaluate(post, version, context)

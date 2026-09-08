@@ -143,3 +143,25 @@ def test_empty_model_response_rejected():
     nim = NIMClient(api_key="k", session=type("S", (), {"post": lambda *a, **k: EmptySession.resp})())
     with pytest.raises(NimEmptyResponse):
         nim.chat("s", "u")
+
+
+def test_quality_failed_post_retries_through_revising(repo, mock_nim):
+    """Regression (live run 34283048081): the quality stage re-evaluates
+    QUALITY_FAILED posts, but the state machine requires QUALITY_FAILED ->
+    REVISING -> QUALITY_REVIEW. The invalid direct edge crashed the whole
+    pipeline the first time a real post failed quality."""
+    from src.pipeline.production import QualityPipeline
+    from tests.e2e.test_full_lifecycle import CLAIMS, DRAFT_BODY
+    idea = repo.save_idea("i", "AI", {}, 80, {})
+    pid = repo.create_post("x", "single", "AI", idea, "a")
+    repo.add_version(pid, DRAFT_BODY, None, {}, CLAIMS, [])
+    for st in (State.CANDIDATE, State.RESEARCHED, State.STRATEGIZED, State.DRAFTED):
+        repo.move_state(pid, st)
+    repo.move_state(pid, State.QUALITY_REVIEW)
+    repo.move_state(pid, State.QUALITY_FAILED)   # failed a previous evaluation
+
+    QualityPipeline(repo, mock_nim).run()        # must not raise InvalidTransition
+
+    end_state = repo.get_post(pid)["state"]
+    assert end_state in (State.QUALITY_PASSED.value, State.QUALITY_FAILED.value,
+                         State.WAITING_APPROVAL.value, State.EDITORIALLY_RANKED.value)
