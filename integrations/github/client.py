@@ -58,6 +58,14 @@ class GitHubClient:
         resp = self._request("POST", "issues", payload)
         return resp.json()
 
+    def list_open_issues(self, label: str | None = None,
+                         limit: int = 50) -> list[dict]:
+        path = f"issues?state=open&per_page={int(limit)}"
+        if label:
+            path += f"&labels={label}"
+        resp = self._request("GET", path)
+        return resp.json()
+
     def add_comment(self, issue_number: int, body: str) -> dict:
         resp = self._request("POST", f"issues/{issue_number}/comments",
                              {"body": body})

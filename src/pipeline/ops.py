@@ -19,6 +19,10 @@ class ReviewPipeline(PipelineBase):
         lifecycle = ReviewLifecycle(self.repo, gh)
         sent = 0
         for post in self.repo.posts_in_state(State.WAITING_APPROVAL.value):
+            if lifecycle.find_open_review_issue(post["post_uid"]) is not None:
+                # already queued for review - do not spam duplicate issues/cards
+                self.repo.log_event("review.duplicate_skipped", post_id=post["id"])
+                continue
             version = self.repo.get_version(post["id"], post["current_version"])
             evals = self.repo.db.query(
                 "SELECT critic, score, passed FROM quality_evaluations "

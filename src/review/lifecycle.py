@@ -60,6 +60,23 @@ class ReviewLifecycle:
                                .get("max_iterate_instruction_chars", 500))
 
     # ------------------------------------------------------------ issue ops
+    def find_open_review_issue(self, post_uid: str) -> dict | None:
+        """Return the open review issue for a post UID, if one exists.
+
+        Dedup guard: without it, every review run re-opens an issue (and
+        re-sends a Discord card) for each post still WAITING_APPROVAL.
+        """
+        if self.gh is None:
+            return None
+        needle = f"POST #{post_uid} "
+        try:
+            for issue in self.gh.list_open_issues(label="editorial-review"):
+                if str(issue.get("title", "")).startswith(needle):
+                    return issue
+        except Exception:
+            return None
+        return None
+
     def create_review_issue(self, post: dict, version: dict, scores: dict,
                             quality: dict) -> dict:
         if self.gh is None:
