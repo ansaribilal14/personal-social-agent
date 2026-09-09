@@ -138,6 +138,27 @@ def notify_publish_failed(repo: Repository, entry: dict, error: str) -> bool:
     return _send_to("errors", text)
 
 
+def notify_quality_digest(repo: Repository, entries: list[dict]) -> bool:
+    """Run digest: zero candidates reached review because the quality gate
+    hard-blocked every draft. Tell the user WHAT was blocked and WHY instead
+    of staying silent (silence read as 'the engine is dead' - 2026-09-09)."""
+    if not _repo_enabled():
+        return False
+    lines = [
+        "RUN DIGEST - no candidates reached review this run",
+        "Every draft was stopped by the quality gate:", "",
+    ]
+    for e in entries[:6]:
+        why = "; ".join(list(e.get("issues") or [])[:2]) or "gate failure"
+        lines.append(f"- {e.get('post_uid', '?')} "
+                     f"({str(e.get('platform', '?')).upper()}): {str(why)[:160]}")
+    lines.append("")
+    lines.append("Nothing needs your decision here. The next scheduled run "
+                 "already researches fresh angles; blocked drafts are kept "
+                 "for audit only.")
+    return _send_to("alerts", "\n".join(lines)[:3800])
+
+
 def notify_weekly_report(repo: Repository, report: dict) -> bool:
     if not _repo_enabled():
         return False

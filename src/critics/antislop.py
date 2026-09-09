@@ -460,6 +460,34 @@ def uniform_rhythm_issue(text: str) -> str | None:
     return None
 
 
+# An imperative opening is an actionable instruction ("Wash charge off
+# before it arcs.") - mechanism/consequence sentences are the opposite of
+# filler. Anchored on the first word so "Washing ..." does not match.
+_IMPERATIVE_OPEN_RE = re.compile(
+    r"^(wash|rinse|stop|start|skip|avoid|measure|check|charge|ground|run|"
+    r"write|ship|test|ask|read|build|delete|cache|pin|set|use|keep|drop|"
+    r"pick|note|count|watch|store|split|rotate|revoke|audit|compare|"
+    r"divide|multiply|think|treat|replace|turn|switch|try|don'?t)\b",
+    re.IGNORECASE)
+
+# Demonstrative anaphora: "That voltage punches through paint." inherits the
+# substance of the concrete sentence before it. The second word must be
+# noun-ish - "That's the real win." / "This changes everything." stay slop.
+_DEMONSTRATIVE_OPEN_RE = re.compile(
+    r"^(that|this|these|those)\s+([A-Za-z][A-Za-z'-]*)\b", re.IGNORECASE)
+_DEMONSTRATIVE_STOP = {
+    "is", "are", "was", "were", "means", "changed", "changes", "matters",
+    "feels", "seems", "happens", "happened", "said", "sounds", "looks",
+    "gets", "got", "kind", "sort", "way", "one", "ones", "thing", "things"}
+
+
+def _demonstrative_anaphora(sentence: str) -> bool:
+    m = _DEMONSTRATIVE_OPEN_RE.match(sentence.strip())
+    if not m:
+        return False
+    return m.group(2).lower() not in _DEMONSTRATIVE_STOP
+
+
 def substantive_ratio(text: str) -> float:
     """Share of sentences that carry actual content (spec section 23 questions).
 
@@ -470,6 +498,14 @@ def substantive_ratio(text: str) -> float:
     "Strong take." never count). Calibrated on live drafts: dense analytical
     sentences and named-specific posts without the original marker words must
     count, or every well-written opinion post gets flagged as slop.
+
+    Live run 34338004018 false positive: "That voltage punches through
+    paint. / Wash charge off before it arcs." scored as filler although those
+    are the mechanism and the action - the most substantive lines of the
+    post. Two additions:
+    - an imperative opening counts (an instruction is substance);
+    - a demonstrative + noun opening counts when the sentence before it was
+      substantive (anaphora carries the referent forward).
     """
     sents = [s for s in sentences(text)
              if len(_WORD_RE.findall(s)) >= _MIN_SENTENCE_WORDS]
@@ -486,14 +522,20 @@ def substantive_ratio(text: str) -> float:
         r"who|why|how)\b",
         re.IGNORECASE)
     hit = 0
+    prev_hit = False
     for s in sents:
-        if markers.search(s):
-            hit += 1
-            continue
-        # a proper-noun anchor carries substance even without marker words:
-        # "Max Planck Institute", "NASA", "GraphQL" - anything concrete_anchors
-        # would list as a named specific.
-        if concrete_anchor_in_sentence(s):
+        counted = bool(markers.search(s))
+        if not counted:
+            # a proper-noun anchor carries substance even without marker
+            # words: "Max Planck Institute", "NASA", "GraphQL" - anything
+            # concrete_anchors would list as a named specific.
+            counted = concrete_anchor_in_sentence(s)
+        if not counted:
+            counted = bool(_IMPERATIVE_OPEN_RE.match(s.strip()))
+        if not counted and prev_hit:
+            counted = _demonstrative_anaphora(s)
+        prev_hit = counted
+        if counted:
             hit += 1
     return hit / len(sents)
 

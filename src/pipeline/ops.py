@@ -1,6 +1,8 @@
 """Review, iteration, scheduling, publishing, analytics, report pipelines."""
 from __future__ import annotations
 
+import json
+
 from src.config import get_config
 from src.db.repository import Repository
 from src.pipeline.base import PipelineBase
@@ -103,8 +105,54 @@ class ReviewPipeline(PipelineBase):
                     "message_id": message_id,
                     "version": int(post["current_version"])})
             sent += 1
+        if sent == 0:
+            # Zero cards this run: either nothing was generated or every
+            # draft was hard-blocked. When blocked drafts exist, say WHY in
+            # #alerts instead of going dark (silence read as engine dead).
+            self._notify_blocked_digest()
         self.succeed()
         return {"review_cards_sent": sent, "review_issues": issues}
+
+    def _notify_blocked_digest(self) -> None:
+        """One digest per run, only when BLOCKED posts exist from today."""
+        guard = f"quality_digest:{self.run_id}"
+        if self.repo.get_setting(guard):
+            return
+        try:
+            blocked = self.repo.db.query(
+                "SELECT post_uid, platform FROM posts "
+                "WHERE state='BLOCKED' "
+                "AND updated_at >= datetime('now', '-26 hours') "
+                "ORDER BY updated_at DESC LIMIT 6")
+            if not blocked:
+                return
+            entries = []
+            for b in blocked:
+                ev = self.repo.db.query(
+                    "SELECT q.issues FROM quality_evaluations q "
+                    "JOIN posts p ON p.id = q.post_id "
+                    "WHERE p.post_uid=:u AND q.passed=0 "
+                    "ORDER BY q.id DESC LIMIT 3",
+                    {"u": b["post_uid"]})
+                issues: list[str] = []
+                for row in ev:
+                    try:
+                        issues.extend(json.loads(row["issues"]))
+                    except Exception:
+                        continue
+                entries.append({"post_uid": b["post_uid"],
+                                "platform": b["platform"],
+                                "issues": issues[:2]})
+            if not entries:
+                return
+            from src.notifications.discord_review import notify_quality_digest
+            if notify_quality_digest(self.repo, entries):
+                self.repo.set_setting(guard, {"sent": True})
+                self.repo.log_event("review.blocked_digest_sent",
+                                    payload={"blocked": len(entries)})
+        except Exception as exc:
+            self.repo.log_event("review.blocked_digest_failed", severity="warn",
+                                payload={"error": type(exc).__name__})
 
     def _github_soft(self):
         """GitHub client or None - review must not depend on GitHub availability."""

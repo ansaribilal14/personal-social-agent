@@ -9,8 +9,22 @@ from src.config import get_config
 from src.critics.critics import OriginalityCritic  # noqa: F401 (registry import)
 from src.db.repository import Repository
 from src.pipeline.base import PipelineBase
-from src.similarity.engine import OriginalityEngine
+from src.similarity.engine import OriginalityEngine, content_tokens, jaccard
 from src.state.machine import State
+
+
+def _idea_source_id_set(idea: dict) -> set[int]:
+    """The idea's source_item_ids as a set of ints (str or list form)."""
+    raw = idea.get("source_item_ids") or []
+    if isinstance(raw, str):
+        raw = [s for s in raw.split(",") if s.strip()]
+    ids: set[int] = set()
+    for s in raw:
+        try:
+            ids.add(int(str(s).strip()))
+        except (TypeError, ValueError):
+            continue
+    return ids
 
 
 def _parse_pub(value: str) -> datetime | None:
@@ -301,11 +315,37 @@ class GenerationPipeline(PipelineBase):
         fresh_days = int(cfg.strategy.get("research", {}).get(
             "freshness_days_recent", 21))
         top_n = int(limit or ranking.get("top_n_per_run", 3))
-        ideas = self.repo.top_ideas(limit=top_n * 2,
+        ideas = self.repo.top_ideas(limit=top_n * 3,
                                     min_score=int(ranking.get("min_editorial_score", 70)))
         created = []
+        # In-run story dedup (live run 34338004018 produced TWO posts from
+        # the same "orthogonal genetic codes" story): one story -> one post
+        # per run. An idea is skipped when it shares a source article with,
+        # or is lexically near-identical to, an idea already selected. The
+        # skipped idea stays CANDIDATE so reject->regenerate can still use it
+        # when the promoted sibling was rejected.
+        selected_sources: set[int] = set()
+        selected_topics: list[list[str]] = []
         writer = Writer(self.nim, self.repo, VoiceProfile())
-        for idea in ideas[:top_n]:
+        for idea in ideas:
+            if len(created) >= top_n:
+                break
+            src_ids = _idea_source_id_set(idea)
+            topic_key = content_tokens(
+                str(idea.get("angle") or idea["statement"] or ""))
+            if src_ids and (src_ids & selected_sources):
+                self.repo.log_event("generation.idea_dedup_skipped", payload={
+                    "idea_id": idea["id"],
+                    "reason": "shares a source article with a selected idea"})
+                continue
+            if any(jaccard(topic_key, prev) >= 0.45
+                   for prev in selected_topics):
+                self.repo.log_event("generation.idea_dedup_skipped", payload={
+                    "idea_id": idea["id"],
+                    "reason": "near-identical angle to a selected idea"})
+                continue
+            selected_sources |= src_ids
+            selected_topics.append(topic_key)
             why = _json.loads(idea["why_me"]) if isinstance(idea["why_me"], str) \
                 else (idea["why_me"] or {})
             evaluation = _json.loads(idea["evaluation"]) if isinstance(idea["evaluation"], str) \
