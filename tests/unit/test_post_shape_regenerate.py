@@ -219,3 +219,62 @@ def test_revision_budget_bumped_to_three():
     from src.config import get_config
     assert int(get_config().quality.get("thresholds", {}).get(
         "max_revision_cycles", 2)) == 3
+
+
+# ------------------------------------------------ live-run root-cause fixes
+def test_writer_attaches_best_source_in_multi_source_brief():
+    """FACT claims without a URL inherit the best-matching research item's
+    URL when the brief has several sources (live run: all facts unverified)."""
+    from src.generation.writer import Writer
+    from tests.conftest import MockNIM
+
+    class FakeRepo:
+        def db_query(self):
+            return []
+
+    nim = MockNIM(responses={"structured_default": {
+        "body": "shape", "thread_posts": None,
+        "claims": [
+            {"text": "The Roman telescope camera is 300 megapixels",
+             "claim_type": "FACT", "source_url": None, "confidence": 80},
+            {"text": "Unrelated opinion", "claim_type": "OPINION",
+             "source_url": None, "confidence": 60},
+        ]}})
+    research = [
+        {"title": "Roman space telescope 300 megapixel camera", "summary": "wide sky survey",
+         "source_url": "https://example.com/roman"},
+        {"title": "Deep sea mining rules", "summary": "international seabed authority",
+         "source_url": "https://example.com/seabed"},
+    ]
+    writer = Writer(nim, None)
+    result = writer.write("x", "single", "angle", "AI", research, claims=[])
+    fact = [c for c in result["claims"] if c["claim_type"] == "FACT"][0]
+    assert fact["source_url"] == "https://example.com/roman"
+
+
+def test_ideas_stage_excludes_research_that_already_produced_posts(repo):
+    """Staleness guard: items behind PROMOTED ideas are dropped from the pool
+    (same stories every run = the stale-posts loop)."""
+    from src.pipeline.production import IdeaDiscoveryPipeline
+    from src.state.machine import State
+    from tests.conftest import MockNIM
+
+    r1 = repo.save_research_item({"title": "used story", "source_url": "https://e.com/1",
+                                  "summary": "s", "category": "current_development",
+                                  "freshness": "fresh"})
+    r2 = repo.save_research_item({"title": "fresh story", "source_url": "https://e.com/2",
+                                  "summary": "s", "category": "current_development",
+                                  "freshness": "fresh"})
+    repo.save_idea("old idea", "AI", {}, 80, {}, source_item_ids=[r1],
+                   status="PROMOTED")
+
+    captured = {}
+
+    class SpyNIM(MockNIM):
+        def chat_structured(self, system, user, **kwargs):
+            captured["user"] = user
+            return {"ideas": []}
+
+    IdeaDiscoveryPipeline(repo, SpyNIM(responses={})).run()
+    assert "fresh story" in captured["user"]
+    assert "used story" not in captured["user"]

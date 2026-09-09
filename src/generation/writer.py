@@ -76,9 +76,13 @@ class Writer:
         required = ("body",)
         if any(k not in result for k in required):
             raise GenerationError(f"writer output missing keys: {sorted(result.keys())}")
-        # Single-source auto-attach: when the brief has exactly one source URL,
-        # a FACT claim without one can only come from that source. Saves the
-        # fact gate a revision cycle (model "forgets" the URL).
+        # Source auto-attach: FACT claims without a URL are attributed to the
+        # best-matching research item. With exactly one source URL every FACT
+        # claim can only come from that source; with several, token overlap
+        # between the claim text and each item's title+summary picks the most
+        # plausible source. Saves the fact gate a revision cycle (the model
+        # "forgets" the URL), without inventing metadata: URLs come only from
+        # stored research items.
         urls = [i.get("source_url") for i in (research_items or [])
                 if i.get("source_url")]
         if len(urls) == 1:
@@ -86,12 +90,43 @@ class Writer:
                 if isinstance(c, dict) and c.get("claim_type") == "FACT" \
                         and not c.get("source_url"):
                     c["source_url"] = urls[0]
+        else:
+            self._attach_best_source(result.get("claims") or [], research_items or [])
         result.setdefault("thread_posts", None)
         result.setdefault("claims", claims)
         result.setdefault("why_this_exists", "")
         result["prompt_versions"] = versions_used("writer")
         result["voice_snapshot"] = {"voice_version": self.voice.VERSION}
         return result
+
+    @staticmethod
+    def _attach_best_source(claim_dicts: list, research_items: list[dict]) -> None:
+        """Attach each URL-less FACT claim to the research item whose
+        title+summary shares the most content words with the claim text."""
+        from src.similarity.engine import tokens
+        items = []
+        for idx, item in enumerate(research_items):
+            url = item.get("source_url")
+            if not url:
+                continue
+            bag = tokens(f"{item.get('title', '')} {item.get('summary', '')}")
+            items.append((idx, url, bag))
+        for c in claim_dicts:
+            if not isinstance(c, dict) or c.get("claim_type") != "FACT" \
+                    or c.get("source_url"):
+                continue
+            ctokens = set(tokens(str(c.get("text", ""))))
+            if not ctokens:
+                continue
+            best_url, best_overlap = None, 0.0
+            for _idx, url, bag in items:
+                if not bag:
+                    continue
+                overlap = len(ctokens & set(bag)) / len(ctokens)
+                if overlap > best_overlap:
+                    best_url, best_overlap = url, overlap
+            if best_url and best_overlap >= 0.2:
+                c["source_url"] = best_url
 
     def iterate(self, post_row: dict, current_version: dict,
                 instruction: str, research_items: list[dict],
@@ -122,6 +157,7 @@ class Writer:
         ])
         result = self.nim.chat_structured(system, user)
         result.setdefault("thread_posts", None)
+        self._attach_best_source(result.get("claims") or [], research_items or [])
         result.setdefault("claims", [])
         result.setdefault("changes_made", [])
         result["prompt_versions"] = versions_used("writer", "iterator")

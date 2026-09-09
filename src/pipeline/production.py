@@ -179,6 +179,26 @@ class IdeaDiscoveryPipeline(PipelineBase):
         fresh_days = int(cfg.strategy.get("research", {}).get(
             "freshness_days_recent", 21))
         research = self.repo.recent_research(limit=12, max_age_days=fresh_days)
+        # Staleness guard: research items that already produced a promoted
+        # idea are excluded, or every run re-proposes the same top stories and
+        # every candidate dies on duplication (the "stale/dead posts" loop).
+        # Fallback to the unfiltered pool when everything is already used.
+        used_ids = self.repo.db.query(
+            "SELECT DISTINCT source_item_ids FROM ideas "
+            "WHERE status='PROMOTED' AND source_item_ids IS NOT NULL")
+        used: set[int] = set()
+        for row in used_ids:
+            raw = row["source_item_ids"]
+            if isinstance(raw, str):
+                raw = [s for s in raw.split(",") if str(s).strip()]
+            for s in (raw or []):
+                try:
+                    used.add(int(str(s).strip()))
+                except (TypeError, ValueError):
+                    continue
+        unused = [r for r in research if int(r["id"]) not in used]
+        if unused:
+            research = unused
         pillars = [p["name"] for p in cfg.strategy.get("pillars", []) if p.get("enabled")]
         system = render("strategist")
         user = ("PILLARS: " + ", ".join(pillars) + "\n\nRESEARCH ITEMS "

@@ -68,23 +68,17 @@ voice:
 
       SQLite or Postgres. Sharding is for problems you have, not problems you might have.
     - |
-      A fruit-fly brain got mapped twice by two independent teams. Nobody compared the maps.
+      Postgres quietly shipped a full-text engine good enough that most glue-jobs are unnecessary.
 
-      If the connectomes disagree, every study built on the first map inherits the error.
+      No extra service. No index sync. One more thing your RDS already does.
 
-      Quietly a reproducibility benchmark now.
+      The side-project stack just got one box smaller.
     - |
-      The dashboard is the demo. The teenager finding out is the product.
+      Grid batteries now set the evening-peak price in California more often than gas peakers.
 
-      Parental monitoring apps train kids to treat surveillance as the default state of intimacy.
+      Four hours of storage rewired a market built on ramping.
 
-      Then wonder why those kids hide everything at 16.
-    - |
-      Insect brains keep old memories by making new neurons compete for slots.
-
-      Each smell fires a sparse, random-ish subset, so a new pattern cannot clobber an old one.
-
-      Memory chip designers could steal this.
+      The next fight is over who owns the bidding software.
   forbidden_patterns:
     - "In today's fast-paced world"
     - "game-changer"
