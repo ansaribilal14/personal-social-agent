@@ -291,6 +291,24 @@ class AntiSlopEngine:
                     f"copies a style exemplar verbatim ({run}-word run)")
                 evidence.append(str(ex)[:80])
                 break
+        # Stock punch line: the post's LAST block must not reuse an exemplar's
+        # closing formula (a live run ended three different posts with the
+        # same exemplar punch). Even a short closing formula reused verbatim
+        # reads as canned.
+        last_block = [b for b in re.split(r"\n\s*\n", text.strip()) if b.strip()]
+        if last_block and exemplars:
+            tail = last_block[-1].strip()
+            for ex in exemplars:
+                ex_blocks = [b for b in re.split(r"\n\s*\n", str(ex).strip()) if b.strip()]
+                if not ex_blocks:
+                    continue
+                run = _word_run_overlap(tail, ex_blocks[-1])
+                if run >= int(self.rules.get("max_punch_word_run", 5)):
+                    issues.append(
+                        f"stock punch line reused from a style exemplar "
+                        f"({run}-word verbatim closing)")
+                    evidence.append(tail[:60])
+                    break
 
         # Fabricated personal experience: first-person experience verbs without
         # a backing PERSONAL_EXPERIENCE claim.
@@ -323,6 +341,7 @@ def substantive_ratio(text: str) -> float:
         r"privacy|surveillance|anxiety|risk|attention|asset|persists?|outlasts?|"
         r"erodes?|overrides?|solves?|limits?|bottleneck|floor|"
         r"study|studies|shows?|found|measured|researchers?|survey|"
+        r"fix|stop|avoid|skip|never|always|don'?t|"
         r"who|why|how)\b",
         re.IGNORECASE)
     hit = 0

@@ -12,8 +12,8 @@ from tests.conftest import MockNIM
 
 ANCHORED_POST = ("Agent frameworks ship 40 tools by default.\n\n"
                  "Production agents use 5.\n\n"
-                 "Tool selection errors compound faster than capability gaps, "
-                 "so the default is the bug.")
+                 "Tool selection errors compound faster than capability gaps. "
+                 "Fix the default, not the model.")
 
 
 # --------------------------------------------------------------- antislop v2

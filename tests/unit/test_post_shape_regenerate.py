@@ -278,3 +278,42 @@ def test_ideas_stage_excludes_research_that_already_produced_posts(repo):
     IdeaDiscoveryPipeline(repo, SpyNIM(responses={})).run()
     assert "fresh story" in captured["user"]
     assert "used story" not in captured["user"]
+
+
+def test_stock_punch_line_reuse_fails():
+    """A live run ended three different posts with the same exemplar punch
+    ('The default is the bug.') - short verbatim closings are flagged."""
+    from src.critics.antislop import AntiSlopEngine
+    from src.config import get_config
+    rules = dict(get_config().quality.get("anti_slop", {}))
+    rules["exemplars"] = get_config().voice.get("voice", {}).get("exemplars") or []
+    body = ("Roman's first image would need over half a million 4K TVs.\n\n"
+            "The telescope's 300-megapixel camera sees 100x wider than Hubble.\n\n"
+            "The default is the bug.")
+    r = AntiSlopEngine(rules).check_text(body)
+    assert not r.passed
+    assert any("stock punch line" in i for i in r.issues)
+
+
+def test_ideas_stage_holds_duplicate_source_ideas(repo):
+    """One idea per research item per run - same-source ideas are HELD."""
+    from src.pipeline.production import IdeaDiscoveryPipeline
+    from tests.conftest import MockNIM
+
+    r1 = repo.save_research_item({"title": "one story", "source_url": "https://e.com/a",
+                                  "summary": "s", "category": "current_development",
+                                  "freshness": "fresh"})
+    why = {f"why_{k}": "x" * 30 for k in
+           ("interesting", "now", "this_angle", "this_platform", "this_account")}
+    why["why_this_platform"] = "the argument lands best as a punchy single on x"
+    idea_a = {"statement": "idea A", "pillar": "AI",
+              "evaluation": {"novelty": 80}, "why_me": why,
+              "source_item_ids": [r1], "platform": "x", "format": "single"}
+    idea_b = dict(idea_a, statement="idea B")
+    IdeaDiscoveryPipeline(repo, MockNIM(responses={"structured_default": {
+        "ideas": [idea_a, idea_b]}})).run()
+    promoted = repo.db.query(
+        "SELECT COUNT(*) AS n FROM ideas WHERE status != 'HELD'")[0]["n"]
+    held = repo.db.query(
+        "SELECT COUNT(*) AS n FROM ideas WHERE status='HELD'")[0]["n"]
+    assert promoted == 1 and held >= 1

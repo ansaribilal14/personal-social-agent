@@ -180,12 +180,14 @@ class IdeaDiscoveryPipeline(PipelineBase):
             "freshness_days_recent", 21))
         research = self.repo.recent_research(limit=12, max_age_days=fresh_days)
         # Staleness guard: research items that already produced a promoted
-        # idea are excluded, or every run re-proposes the same top stories and
-        # every candidate dies on duplication (the "stale/dead posts" loop).
-        # Fallback to the unfiltered pool when everything is already used.
+        # idea in the LAST 24H are excluded, or every run re-proposes the same
+        # top stories and candidates die on duplication (the "stale posts"
+        # loop). After 24h a story may return with a fresh angle. Fallback to
+        # the unfiltered pool when everything is already used.
         used_ids = self.repo.db.query(
             "SELECT DISTINCT source_item_ids FROM ideas "
-            "WHERE status='PROMOTED' AND source_item_ids IS NOT NULL")
+            "WHERE status IN ('PROMOTED','CANDIDATE') AND source_item_ids IS NOT NULL "
+            "AND created_at >= datetime('now', '-1 day')")
         used: set[int] = set()
         for row in used_ids:
             raw = row["source_item_ids"]
@@ -224,8 +226,26 @@ class IdeaDiscoveryPipeline(PipelineBase):
         why_rules = cfg.strategy.get("why_me_test", {})
         min_len = int(why_rules.get("min_answer_length", 20))
         promoted = 0
+        # Diversity guard (live-run finding): three ideas from the SAME source
+        # item produce three near-duplicate drafts that all die on mutual
+        # semantic duplication. One idea per research item per run - distinct
+        # stories or nothing.
+        seen_sources: set[int] = set()
         for idea in raw.get("ideas", []):
             why = idea.get("why_me", {})
+            source_ids = set()
+            for s in (idea.get("source_item_ids") or []):
+                try:
+                    source_ids.add(int(str(s).strip()))
+                except (TypeError, ValueError):
+                    continue
+            if source_ids and source_ids & seen_sources:
+                self.repo.save_idea(idea.get("statement", ""), idea.get("pillar", ""),
+                                    idea.get("evaluation", {}), 0, why,
+                                    status="HELD", workflow_run=self.run_id)
+                self.repo.log_event("ideas.duplicate_source_held",
+                                    payload={"statement": idea.get("statement", "")[:120]})
+                continue
             # "Why me?" test in code: all five answers, each substantive (spec 17)
             if len(why) < 5 or any(len(str(v).strip()) < min_len for v in why.values()):
                 self.repo.save_idea(idea.get("statement", ""), idea.get("pillar", ""),
@@ -241,6 +261,7 @@ class IdeaDiscoveryPipeline(PipelineBase):
                 idea.get("statement", ""), idea.get("pillar", ""), evaluation, score,
                 why, source_item_ids=idea.get("source_item_ids") or [],
                 workflow_run=self.run_id)
+            seen_sources |= source_ids
             promoted += 1
         self.succeed()
         return {"candidates": promoted}

@@ -484,11 +484,13 @@ iterator_v4: |
   - If a finding names a banned pattern ("not X, it's Y", meta-label,
     press-release cliche, abstract noun soup), rewrite the sentence with
     plain words and a specific, not a synonym swap.
-  - POST SHAPE is part of every revision: hook first line (roughly 40-100
-    characters, stands alone), blocks of 1-2 sentences separated by blank
-    lines, and a short punchy last block. Never collapse a shaped post back
-    into one paragraph. If a finding complains about essay shape or a wall
-    of text, re-break the post into blocks - do not just reword it.
+  - POST SHAPE is part of every revision and is CODE-CHECKED with numbers:
+    the first line MUST end up <= 100 characters. If a finding says it is
+    longer, cut it to its sharpest clause and drop the rest - do not merely
+    reword it. Blocks of 1-2 sentences separated by blank lines; the last
+    block is the shortest. If a finding says "wall of text", re-break the
+    post into blocks. If a finding says the post exceeds the platform
+    length, CUT a whole block - never compress five ideas into fewer words.
   - Never drop verified facts to make wording punchier unless told to.
   - Preserve platform constraints.
 

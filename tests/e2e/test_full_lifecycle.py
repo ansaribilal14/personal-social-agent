@@ -36,8 +36,8 @@ CLAIMS = [{
 
 DRAFT_BODY = ("Agent frameworks ship 40 tools by default.\n\n"
               "Production agents use 5.\n\n"
-              "Tool selection errors compound faster than capability gaps, "
-              "so the default is the bug.")
+              "Tool selection errors compound faster than capability gaps. "
+              "The fix is fewer tools.")
 
 
 def test_full_lifecycle(repo, mock_nim, mock_buffer, mock_github):
@@ -101,8 +101,8 @@ def test_full_lifecycle(repo, mock_nim, mock_buffer, mock_github):
 
     writer_mock = mock_nim
     writer_mock.responses["structured_default"] = {
-        "body": DRAFT_BODY.replace("so the default is the bug.",
-                                   "Defaults are the bug. Fix the default."),
+        "body": DRAFT_BODY.replace("The fix is fewer tools.",
+                                   "Fix the default, not the model."),
         "thread_posts": None, "claims": CLAIMS,
     }
     from src.pipeline.ops import IteratePipeline
