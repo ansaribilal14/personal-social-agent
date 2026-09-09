@@ -17,7 +17,7 @@ PROMPTS_DIR = Path(__file__).resolve().parents[1] / "prompts"
 PROMPT_VERSIONS = {
     "researcher": "v2",
     "strategist": "v4",
-    "writer": "v5",
+    "writer": "v6",
     "iterator": "v4",
     "analyst": "v1",
     "critic_originality": "v2",
@@ -32,18 +32,19 @@ PROMPT_VERSIONS = {
 def _library() -> dict[str, str]:
     with (PROMPTS_DIR / "library.yml").open("r", encoding="utf-8") as fh:
         raw = yaml.safe_load(fh) or {}
-    out = {}
-    for key, text in raw.items():
-        name, _, version = key.rpartition("_v")
-        out[name] = str(text)
-    return out
+    return {str(key): str(text) for key, text in raw.items()}
 
 
 def prompt(name: str) -> str:
+    """Look up the prompt EXPLICITLY by its registered version (PROMPT_VERSIONS),
+    never by "whichever _vN key happens to appear last in the YAML file" -
+    that used to silently pick the wrong prompt if the file was reordered or a
+    new draft version was inserted mid-file instead of appended at the end."""
     lib = _library()
-    if name not in lib:
-        raise KeyError(f"unknown prompt '{name}'")
-    return lib[name]
+    key = f"{name}_{version_of(name)}"
+    if key not in lib:
+        raise KeyError(f"unknown prompt '{key}' (from name='{name}')")
+    return lib[key]
 
 
 def version_of(name: str) -> str:

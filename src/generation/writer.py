@@ -95,7 +95,15 @@ class Writer:
             self._attach_best_source(result.get("claims") or [], research_items or [])
         result.setdefault("thread_posts", None)
         result.setdefault("claims", claims)
-        result.setdefault("why_this_exists", "")
+        if not str(result.get("why_this_exists") or "").strip():
+            # The model sometimes omits this field even though the prompt
+            # contract requires it. Rather than show a bare "-" in the Discord
+            # review card, fall back to the strategist's own rationale so the
+            # reviewer still sees a real reason, not a blank.
+            result["why_this_exists"] = (
+                (why_me or {}).get("why_this_account")
+                or (why_me or {}).get("why_interesting")
+                or angle or "")
         result["prompt_versions"] = versions_used("writer")
         result["voice_snapshot"] = {"voice_version": self.voice.VERSION}
         return result

@@ -76,6 +76,8 @@ CREATE TABLE IF NOT EXISTS ideas (
     idea_uid      TEXT UNIQUE NOT NULL,
     pillar        TEXT,
     statement     TEXT NOT NULL,
+    angle         TEXT,                        -- strategist's editorial interpretation,
+                                                 -- distinct from the bare statement (see angles table)
     source_item_ids BIGINT[],
     evaluation    JSONB,                       -- component scores from NIM (data only)
     score         INTEGER,                     -- COMPUTED IN CODE (spec 16)

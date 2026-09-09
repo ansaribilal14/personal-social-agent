@@ -121,14 +121,16 @@ def test_research_by_urls(repo):
 
 # -------------------------------------------------------- writer v4 + voice v2
 
-def test_writer_prompt_v5_has_shape_and_contracts():
+def test_writer_prompt_v6_has_shape_and_contracts():
     from src.prompts import render, versions_used
     text = render("writer", voice_block="VOICE")
-    for marker in ("SHAPE CONTRACT", "SPECIFICITY CONTRACT", "VALUE CONTRACT",
+    for marker in ("SHAPE CONTRACT", "SPECIFICITY CONTRACT", "VALUE CHAIN",
+                   "NEXT-HOUR TEST", "FIRST-PERSON RULE",
                    "BANNED CONSTRUCTIONS", "concrete_anchors", "hook_line",
-                   "EXEMPLARS OF THE TARGET QUALITY BAR"):
+                   "uniform rhythm", "summary closers", "Staged run-up",
+                   "TEN EXEMPLARS"):
         assert marker in text, marker
-    assert versions_used("writer") == {"writer": "v5"}
+    assert versions_used("writer") == {"writer": "v6"}
 
 
 def test_strategist_v4_and_iterator_v4_registered():
@@ -139,14 +141,22 @@ def test_strategist_v4_and_iterator_v4_registered():
     assert "POST SHAPE" in render("iterator")
 
 
-def test_voice_profile_v3_block():
+def test_voice_profile_v4_block():
     from src.voice.profile import VoiceProfile
     block = VoiceProfile().to_prompt_block()
     assert "persona:" in block
     assert "format rule:" in block
     assert "specificity rule:" in block
     assert "value rule:" in block
-    assert VoiceProfile.VERSION == "voice_stable_v3"
+    # v4: the value chain and next-hour test must reach the writer prompt
+    assert "value chain" in block
+    assert "next-hour" in block
+    # v4: mixed-register exemplar bank (result-report / confession / contrarian)
+    assert "I expected fine-tuning to win" in block
+    assert "Same eval, temperature 0, three runs" in block
+    assert VoiceProfile.VERSION == "voice_stable_v4"
+    # and the anti-slop engine sees every shipped exemplar for verbatim checks
+    assert len(VoiceProfile().exemplars) >= 8
 
 
 def test_exemplar_verbatim_copy_fails():
@@ -154,8 +164,8 @@ def test_exemplar_verbatim_copy_fails():
     from src.config import get_config
     exemplars = get_config().voice.get("voice", {}).get("exemplars") or []
     assert len(exemplars) >= 4
-    copied = ("Frameworks demo thirty tools; real deployments settle at "
-              "four or five, so something is off.")
+    copied = ("Frameworks ship 40 tools in demos; real deployments settle "
+              "at 4 or 5, so something is off.")
     rules = dict(get_config().quality.get("anti_slop", {}))
     rules["exemplars"] = exemplars
     r = AntiSlopEngine(rules).check_text(copied)

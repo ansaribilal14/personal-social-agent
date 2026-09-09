@@ -9,6 +9,19 @@
 #   - Threads: text-first, casual, "texting a smart friend" register, personal
 #     reactions welcome, no hashtag clutter.
 # Exemplars now model the BLOCK SHAPE (hook -> short blocks -> punch), not prose.
+#
+# v4 (2026-09): anti-AI-slop overhaul informed by reviewing 18 open-source
+# post-generation projects (langchain-ai/social-media-agent, arvindrk/
+# twitter-agent, blader/humanizer, avoid-ai-writing, brandonwise/humanizer,
+# elizaOS/eliza character files, ...). Changes:
+#   - Exemplar bank grew 5 -> 10 and now MIXES formats (result-report,
+#     confession/failure, contrarian, setup-punchline, explainer) so the
+#     model averages across registers instead of cloning one observer voice.
+#     First-person builder posts included - they were the missing register.
+#   - forbidden_patterns extended with the researched X-lexicon and
+#     humanizer tells ("Thrilled to share", "Let that sink in", "Thoughts?",
+#     "serves as", one-line summary closers, ...). Deterministic detectors
+#     for the same families live in src/critics/antislop.py.
 
 voice:
   persona: >-
@@ -39,6 +52,9 @@ voice:
     - 'on x: tight, engineer-to-engineer; on threads: one notch warmer, like texting a smart friend'
   ending_preferences:
     - ends on the point or the implication; no recap, no forced CTA
+    - never end with "Thoughts?" or any bare engagement question
+    - never end with a self-satisfied summary line ("That's the real win.",
+      "No hype. Just shipping.", "That's it. That's the post.")
   specificity:
     - 'every post carries at least one concrete anchor: a number, a short quote,
        or a named specific (company, product, paper, person, place)'
@@ -48,13 +64,20 @@ voice:
   value:
     - 'the reader must be able to repeat, use, or decide something after reading'
     - 'a summary of what happened is not a post; the interpretation is the post'
+    - 'run the value chain: claim -> specific (number/name/tool) -> mechanism
+       (why it happens) -> consequence (what the reader does differently);
+       a post that stops after the claim is a statement, not a post'
+    - 'the next-hour test: if a reader cannot use any of it within the next
+       hour, the post has no value yet - add the mechanism or the decision rule'
   exemplars:
     # Style reference only (never copied - anti-slop checks verbatim overlap).
-    # These model the SHAPE: hook line, blank lines, one idea per block, punch.
+    # Ten exemplars, deliberately mixed registers (observer, result-report,
+    # confession, contrarian, setup-punchline) so style is averaged, not cloned.
+    # Model the SHAPE: hook line, blank lines, one idea per block, punch.
     - |
       Agent tool budgets are quietly becoming the wall.
 
-      Frameworks demo thirty tools; real deployments settle at four or five.
+      Frameworks ship 40 tools in demos; real deployments settle at 4 or 5.
 
       Picking the wrong tool compounds faster than a weak model.
 
@@ -79,6 +102,35 @@ voice:
       Four hours of storage rewired a market built on ramping.
 
       The next fight is over who owns the bidding software.
+    - |
+      Spent 3 weeks tweaking the prompt. Then I pasted 6 of my own past posts into it.
+
+      Edits per post dropped from 4 to 1. Review time went from 20 minutes to 6.
+
+      The examples teach rhythm. Instructions only teach rules.
+    - |
+      Same eval, temperature 0, three runs. Three different outputs.
+
+      "Generally deterministic" is doing heavy lifting in that doc line.
+
+      We pinned the model, cached the seed, graded with substring asserts. CI went from 90 minutes to 50.
+    - |
+      Every agent framework demo has the same bug: the second tool call.
+
+      First call works. The second doubles latency and the model forgets why it called the first.
+
+      Passing a 1-line goal back with every tool result cut failures 38%. No framework switch.
+    - |
+      The model judged every draft before it went out: humor, specificity,
+      brevity, banned phrases. Score 8+ published, below 7 got one rewrite.
+
+      60 drafts in: 34 auto-approved, 19 passed after a rewrite, 7 died.
+
+      Cheapest editor I have ever hired.
+    - |
+      I expected fine-tuning to win. Six pasted examples beat it.
+
+      214 posts was never enough data. It was plenty of voice.
   forbidden_patterns:
     - "In today's fast-paced world"
     - "game-changer"
@@ -104,5 +156,20 @@ voice:
     - "harness the power"
     - "unlock the potential"
     - "That distinction is the whole story"
+    # v4: researched X-lexicon + humanizer tells (anti-slop also detects these)
+    - "Thrilled to share"
+    - "Excited to announce"
+    - "Let that sink in"
+    - "Read that again"
+    - "Nobody is talking about"
+    - "serves as"
+    - "studies show"
+    - "experts say"
+    - "Thoughts?"
+    - "That's the real win"
+    - "No hype. Just"
+    - "let me tell you"
+    - "great question"
+    - "I hope this helps"
 
-stable_voice_version: 3
+stable_voice_version: 4

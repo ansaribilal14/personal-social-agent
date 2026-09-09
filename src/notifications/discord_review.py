@@ -36,7 +36,8 @@ def _send_to(purpose: str, text: str) -> bool:
 
 def format_review_card(post: dict, version: dict, scores: dict,
                        editorial_score: int, recommended_slot: str,
-                       issue_url: str | None = None) -> str:
+                       issue_url: str | None = None,
+                       angle: str | None = None) -> str:
     """The review-card format (chunked by the client).
 
     Approval is Discord-native: react on this message, or type a command.
@@ -51,6 +52,8 @@ def format_review_card(post: dict, version: dict, scores: dict,
         f"Pillar: {post.get('pillar', '-')}",
         f"Version: v{post.get('current_version', '-')}", "",
         f"Editorial score: {editorial_score}", "",
+        "ANGLE (the editorial take this post was supposed to make):",
+        str(angle or "-")[:300], "",
         "WHY THIS EXISTS:",
         str(version.get("why_this_exists") or "-")[:300], "", sep,
     ]
@@ -86,7 +89,8 @@ def format_review_card(post: dict, version: dict, scores: dict,
 def send_review_card(repo: Repository, post: dict, version: dict, scores: dict,
                      editorial_score: int, recommended_slot: str,
                      issue_url: str | None = None,
-                     client: DiscordClient | None = None) -> str | None:
+                     client: DiscordClient | None = None,
+                     angle: str | None = None) -> str | None:
     """Post the review card; return the Discord message id (None if unavailable).
 
     The message id lets the poller (src/review/discord_poller.py) read card
@@ -97,7 +101,7 @@ def send_review_card(repo: Repository, post: dict, version: dict, scores: dict,
         repo.log_event("discord.skipped_not_configured", post_id=post["id"])
         return None
     text = format_review_card(post, version, scores, editorial_score,
-                              recommended_slot, issue_url)
+                              recommended_slot, issue_url, angle=angle)
     client = client or DiscordClient()
     try:
         channel = None

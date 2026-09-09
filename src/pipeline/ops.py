@@ -87,10 +87,16 @@ class ReviewPipeline(PipelineBase):
             except NoSlotAvailable:
                 slot_str = "no clean slot in window (collision protection)"
 
+            angle_text = None
+            if post.get("angle_id"):
+                rows = self.repo.db.query("SELECT text FROM angles WHERE id=:i",
+                                          {"i": post["angle_id"]})
+                angle_text = rows[0]["text"] if rows else None
+
             message_id = send_review_card(
                 self.repo, post, version, scores,
                 post.get("editorial_score") or 0, slot_str, issue_url,
-                client=self._discord)
+                client=self._discord, angle=angle_text)
             if message_id:
                 # register for one-click reaction approvals (discord_poller)
                 self.repo.set_setting(card_key, {

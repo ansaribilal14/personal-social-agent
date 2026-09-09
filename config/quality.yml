@@ -60,6 +60,18 @@ anti_slop:
   ban_press_release: true        # "opens design space", "moves the field", "unleashes"...
   ban_abstract_soup: true        # sentences built from landscape/ecosystem/paradigm/etc.
   min_concrete_anchors: 1        # every post needs >=1 number, quote, or named specific
+  # --- v4 families (researched from 18 open-source post-generation repos:
+  # --- blader/humanizer, avoid-ai-writing, brandonwise/humanizer,
+  # --- arvindrk/twitter-agent, langchain-ai/social-media-agent) ---
+  ban_staged_runup: true         # "Let me tell you", "Here's the thing:", "Honestly,"
+  ban_summary_closers: true      # "That's the real win.", "No hype. Just shipping.", "Period."
+  ban_countdown_negation: true   # "It's not the price. It's not the features. It's the trust."
+  ban_borrowed_authority: true   # "experts say", "studies show", "everyone knows"
+  ban_chatbot_residue: true      # "Great question!", "I hope this helps", "In summary"
+  ban_x_lexicon: true            # "Thrilled to share", "Let that sink in", ending "Thoughts?"
+  ban_ing_riders: true           # "..., showcasing seamless integration"
+  ban_copula_avoidance: true     # "serves as" -> "is"
+  ban_uniform_rhythm: true       # 5+ sentences of near-equal length = AI burstiness fingerprint
 
 similarity:                      # originality engine thresholds (0..1)
   exact: 0.98

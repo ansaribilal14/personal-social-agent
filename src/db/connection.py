@@ -68,6 +68,19 @@ class SQLiteDatabase(Database):
 
     def migrate(self) -> None:
         self.executescript(SQLITE_SCHEMA)
+        # `CREATE TABLE IF NOT EXISTS` above does nothing for a table that
+        # already existed before a column was added to the schema (e.g. an
+        # existing state/agent.db from before ideas.angle existed). Self-heal
+        # by adding any missing columns; SQLite has no "ADD COLUMN IF NOT
+        # EXISTS", so probe first.
+        self._add_column_if_missing("ideas", "angle", "TEXT")
+
+    def _add_column_if_missing(self, table: str, column: str, coltype: str) -> None:
+        with self._lock:
+            self._ensure_open()
+            cols = {row[1] for row in self._conn.execute(f"PRAGMA table_info({table})")}
+            if column not in cols:
+                self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
 
     def close(self) -> None:
         if self._conn is not None:
@@ -142,7 +155,8 @@ def get_postgres_db(db_url: str) -> Database:
         def migrate(self) -> None:
             from pathlib import Path as _P
 
-            migration = _P(__file__).resolve().parent.parent.parent / "migrations" / "001_init.sql"
-            self.executescript(migration.read_text(encoding="utf-8"))
+            migrations_dir = _P(__file__).resolve().parent.parent.parent / "migrations"
+            for migration in sorted(migrations_dir.glob("*.sql")):
+                self.executescript(migration.read_text(encoding="utf-8"))
 
     return PostgresDatabase(db_url)

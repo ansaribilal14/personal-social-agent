@@ -184,12 +184,13 @@ class Repository:
     # ---------------------------------------------------------------- ideas
     def save_idea(self, statement: str, pillar: str, evaluation: dict,
                   score: int, why_me: dict, source_item_ids: list[int] | None = None,
-                  status: str = "CANDIDATE", workflow_run: str | None = None) -> int:
+                  status: str = "CANDIDATE", workflow_run: str | None = None,
+                  angle: str | None = None) -> int:
         return self.db.execute(
-            "INSERT INTO ideas (idea_uid, pillar, statement, source_item_ids, evaluation, "
-            "score, why_me, status, workflow_run) VALUES (:u, :p, :s, :si, :e, :sc, :w, :st, :r)",
+            "INSERT INTO ideas (idea_uid, pillar, statement, angle, source_item_ids, evaluation, "
+            "score, why_me, status, workflow_run) VALUES (:u, :p, :s, :an, :si, :e, :sc, :w, :st, :r)",
             {"u": f"IDEA-{uuid.uuid4().hex[:12]}", "p": pillar, "s": statement,
-             "si": ",".join(str(i) for i in (source_item_ids or [])),
+             "an": angle, "si": ",".join(str(i) for i in (source_item_ids or [])),
              "e": _json(evaluation), "sc": score, "w": _json(why_me), "st": status,
              "r": workflow_run})
 

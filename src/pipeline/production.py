@@ -245,7 +245,8 @@ class IdeaDiscoveryPipeline(PipelineBase):
             if source_ids and source_ids & seen_sources:
                 self.repo.save_idea(idea.get("statement", ""), idea.get("pillar", ""),
                                     idea.get("evaluation", {}), 0, why,
-                                    status="HELD", workflow_run=self.run_id)
+                                    status="HELD", workflow_run=self.run_id,
+                                    angle=idea.get("angle", ""))
                 self.repo.log_event("ideas.duplicate_source_held",
                                     payload={"statement": idea.get("statement", "")[:120]})
                 continue
@@ -253,7 +254,8 @@ class IdeaDiscoveryPipeline(PipelineBase):
             if len(why) < 5 or any(len(str(v).strip()) < min_len for v in why.values()):
                 self.repo.save_idea(idea.get("statement", ""), idea.get("pillar", ""),
                                     idea.get("evaluation", {}), 0, why,
-                                    status="HELD", workflow_run=self.run_id)
+                                    status="HELD", workflow_run=self.run_id,
+                                    angle=idea.get("angle", ""))
                 continue
             evaluation = idea.get("evaluation", {})
             # FINAL SCORE COMPUTED IN CODE (spec 16) - never trusts the LLM number
@@ -263,7 +265,7 @@ class IdeaDiscoveryPipeline(PipelineBase):
             idea_id = self.repo.save_idea(
                 idea.get("statement", ""), idea.get("pillar", ""), evaluation, score,
                 why, source_item_ids=idea.get("source_item_ids") or [],
-                workflow_run=self.run_id)
+                workflow_run=self.run_id, angle=idea.get("angle", ""))
             seen_sources |= source_ids
             promoted += 1
         self.succeed()
@@ -306,12 +308,13 @@ class GenerationPipeline(PipelineBase):
                 text = _fetch_article_text(item.get("source_url") or "")
                 if text:
                     item["article"] = text
-            draft = writer.write(platform, format, idea["statement"],
+            draft = writer.write(platform, format,
+                                 idea.get("angle") or idea["statement"],
                                  idea.get("pillar") or "AI", research,
                                  claims=[], why_me=why)
             post_id = self.repo.create_post(
                 platform, format, idea.get("pillar") or "AI", idea["id"],
-                idea["statement"], state=State.DISCOVERED)
+                idea.get("angle") or idea["statement"], state=State.DISCOVERED)
             for s in (State.CANDIDATE, State.RESEARCHED, State.STRATEGIZED,
                       State.DRAFTED):
                 self.repo.move_state(post_id, s, actor="generation",

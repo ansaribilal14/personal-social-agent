@@ -14,7 +14,7 @@ from src.db.repository import Repository
 class VoiceProfile:
     """Builds the stable-voice prompt block from config. Versioned."""
 
-    VERSION = "voice_stable_v3"
+    VERSION = "voice_stable_v4"
 
     def __init__(self, voice_cfg: dict | None = None, learned: list[dict] | None = None):
         self.cfg = voice_cfg if voice_cfg is not None else get_config().voice.get("voice", {})

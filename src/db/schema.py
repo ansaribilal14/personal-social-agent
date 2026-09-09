@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS ideas (
     idea_uid TEXT UNIQUE NOT NULL,
     pillar TEXT,
     statement TEXT NOT NULL,
+    angle TEXT,
     source_item_ids TEXT,
     evaluation TEXT,
     score INTEGER,

@@ -142,11 +142,22 @@ class VoiceCritic(Critic):
                     "(landscape/ecosystem/paradigm/era), summary-without-take, "
                     "or motivational filler => passed=false, score<=55.\n"
                     "- Meta-labels ('As an opinion:', 'Hot take:') => fail.\n"
-                    "- 'not X, it's Y' rhetorical constructions => fail.\n"
+                    "- 'not X, it's Y' rhetorical constructions (including "
+                    "split-sentence and countdown forms) => fail.\n"
+                    "- Borrowed authority ('experts say', 'studies show'), "
+                    "chatbot residue ('I hope this helps'), staged run-ups "
+                    "('Let me tell you', 'Honestly,'), or self-satisfied "
+                    "summary closers ('That's the real win.', 'Period.') => fail.\n"
+                    "- Uniform sentence rhythm: 5+ sentences of nearly the "
+                    "same length, no fragments, no short punches => fail "
+                    "(human posts burst; AI prose is metronomic).\n"
+                    "- A bare statement with no mechanism or consequence "
+                    "(the reader learns nothing they can use or repeat) => "
+                    "passed=false, score<=55.\n"
                     "- No concrete anchor (no number, no quote, no named "
                     "specific) => passed=false, score<=50.\n"
                     "- A real position with a reason, plain words, at least one "
-                    "specific => high score.\n"
+                    "specific, varied rhythm => high score.\n"
                     "Return JSON "
                     '{"passed": bool, "score": 0-100, "issues": []}. '
                     "Profile: " + str(voice_cfg)[:900] + "\nPOST: " + body[:1500])
@@ -186,9 +197,13 @@ class HookCritic(Critic):
         body = _flat_body(version)
         first_sentence = re.split(r"[.!?]", body.strip())[0] if body.strip() else ""
         issues = []
-        if first_sentence.lower().startswith(("hey", "so,", "hello", "i wanted to",
-                                              "thread:")):
+        first_low = first_sentence.lower().strip()
+        if first_low.startswith(("hey", "so,", "hello", "i wanted to",
+                                 "thread:")):
             issues.append("weak opener: throat-clearing")
+        if re.match(r"^(let me tell|honestly[,:]|here'?s the thing|real talk|"
+                    r"let'?s be honest)", first_low):
+            issues.append("weak opener: staged run-up instead of the claim")
         if len(first_sentence) > 280:
             issues.append("opening sentence too long for a hook")
         if not any(ch.isdigit() for ch in body) and len(body.split()) < 25:

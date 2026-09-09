@@ -72,6 +72,68 @@ PRESS_RELEASE = [
     r"\b(heralds?|ushers? in) a new\b",
     r"\bpoised to (transform|revolutionize|disrupt)\b",
 ]
+# Staged run-up: warming up the audience instead of starting the post.
+# (blader/humanizer tells; "Let me tell you" / "Here's the thing:" patterns)
+STAGED_RUNUP = [
+    r"^(let me tell you|let me be (clear|honest)|here'?s (the thing|why this|the deal)\s*[:.]?)",
+    r"^(honestly|frankly|seriously|look)\s*[,:.]",
+    r"^(okay|alright|so)\s*,?\s*(so|here|listen|real talk)\b",
+    r"^(real talk|truth be told|let'?s be honest)\s*[:.,]",
+]
+# One-line summary closers: a self-satisfied final line that points back at
+# the post instead of making a point ("That's the real win.").
+SUMMARY_CLOSERS = [
+    r"^that'?s (it|all)\.?\s*$",
+    r"^that'?s the (real )?(win|point|story|difference|whole game)\.?\s*$",
+    r"^that'?s it\.? that'?s the (post|tweet|whole post)\.?\s*$",
+    r"^no hype[.,]? ?(just|only|pure) (shipping|truth|facts|execution)\.?\s*$",
+    r"^(period|full stop)\.?\s*$",
+    r"^that'?s the (whole )?(game|post)\.?\s*$",
+]
+# Countdown negation: "It's not the price. It's not the features. It's the
+# trust." - two or more consecutive 'it's not' sentences before the reveal.
+COUNTDOWN_NEGATION = [
+    r"\bit'?s not\b[^.!?]{2,80}[.!?]\s*(and )?it'?s not\b",
+    r"\bnot (the|a|about)\b[^.!?]{2,60}[.!?]\s*(it'?s|it is|this is) not\b",
+]
+# Borrowed authority: appeal to unnamed consensus instead of a real source.
+BORROWED_AUTHORITY = [
+    r"\bexperts (believe|say|agree|warn|predict)\b",
+    r"\bindustry (leaders|insiders) (agree|say|believe)\b",
+    r"\bstudies (show|have shown|suggest)( that)?\b",
+    r"\bpeople (are saying|have been saying)\b",
+    r"\beveryone knows\b",
+]
+# Chatbot residue: assistant-isms that leak into generated posts.
+CHATBOT_RESIDUE = [
+    r"\bgreat question\b",
+    r"\bi hope this helps\b",
+    r"\bhere'?s what you need to know\b",
+    r"\bin (summary|conclusion|a nutshell)\b",
+    r"\bto summarize\b",
+    r"\bcertainly\s*!",
+]
+# X-lexicon: engagement-cliche phrases common on x that mark generated posts.
+X_LEXICON = [
+    r"\bthrilled to (share|announce)\b",
+    r"\bexcited to (share|announce)\b",
+    r"\blet that sink in\b",
+    r"\bread that (again|one more time)\b",
+    r"\bnobody (is|'s) (talking|posting) about (this|it)\b",
+    r"\bthoughts\?\s*$",
+    r"\bgame[ -]?chang(er|ing)\b",
+    r"\bworth a look\b",
+]
+# -ing riders: a comma + trailing participle doing fake-work at sentence end.
+ING_RIDERS = [
+    r",\s+(showcasing|symbolizing|highlighting|emphasizing|demonstrating|"
+    r"reflecting|signaling|paving|underscoring|elevating|empowering)\b",
+]
+# Copula avoidance: Latinate verbs where plain "is/has" is stronger.
+COPULA_AVOIDANCE = [
+    r"\bserves? as\b",
+    r"\bstands? as a testament\b",
+]
 # Abstract-noun soup: sentences built from these instead of specifics.
 ABSTRACT_NOUNS = [
     "landscape", "ecosystem", "paradigm", "realm", "sphere", "leverage",
@@ -123,9 +185,15 @@ def concrete_anchors(text: str) -> list[str]:
     for s in sentences(text or ""):
         words = _WORD_RE.findall(s)
         for idx, w in enumerate(words):
-            if idx == 0 or not w[0].isupper() or len(w) < 3:
+            if not w[0].isupper() or len(w) < 3:
                 continue
             if w.lower() in _NON_PROPER:
+                continue
+            # Sentence start: only acronyms (NASA) and possessive proper
+            # nouns ("SQLite's", "Hubble's") count - a bare capitalized
+            # first word is usually just capitalization (live-run finding:
+            # "SQLite's refusal..." wrongly scored 0 anchors otherwise).
+            if idx == 0 and not (w.isupper() or w.rstrip("s").endswith("'")):
                 continue
             anchors.append(w)
     seen: set[str] = set()
@@ -316,7 +384,80 @@ class AntiSlopEngine:
                 re.search(r"\b(i (built|shipped|tried|tested|learned)|my (team|project))\b", low):
             issues.append("first-person experience claim without PERSONAL_EXPERIENCE claim")
 
+        # Research-derived families (blader/humanizer, avoid-ai-writing,
+        # arvindrk/twitter-agent): each is individually gated so operators can
+        # tune without touching code.
+        if self.rules.get("ban_staged_runup", True):
+            for pat in STAGED_RUNUP:
+                if re.search(pat, low, re.MULTILINE):
+                    issues.append("staged run-up opener: " + pat)
+                    evidence.append(pat)
+        if self.rules.get("ban_summary_closers", True):
+            blocks = [b.strip() for b in re.split(r"\n\s*\n", text.strip()) if b.strip()]
+            if blocks:
+                for pat in SUMMARY_CLOSERS:
+                    if re.search(pat, blocks[-1].lower()):
+                        issues.append(f"self-satisfied summary closer: '{blocks[-1][:60]}'")
+                        evidence.append(blocks[-1][:60])
+                        break
+        if self.rules.get("ban_countdown_negation", True):
+            for pat in COUNTDOWN_NEGATION:
+                if re.search(pat, low):
+                    issues.append("countdown negation ('it's not... it's not... it's')")
+                    evidence.append(pat)
+        if self.rules.get("ban_borrowed_authority", True):
+            for pat in BORROWED_AUTHORITY:
+                if re.search(pat, low):
+                    issues.append("borrowed authority (unnamed consensus): " + pat)
+                    evidence.append(pat)
+        if self.rules.get("ban_chatbot_residue", True):
+            for pat in CHATBOT_RESIDUE:
+                if re.search(pat, low):
+                    issues.append("chatbot residue: " + pat)
+                    evidence.append(pat)
+        if self.rules.get("ban_x_lexicon", True):
+            for pat in X_LEXICON:
+                if re.search(pat, low, re.MULTILINE):
+                    issues.append("engagement-cliche x lexicon: " + pat)
+                    evidence.append(pat)
+        if self.rules.get("ban_ing_riders", True):
+            for pat in ING_RIDERS:
+                if re.search(pat, low):
+                    issues.append("-ing participle rider at sentence end")
+                    evidence.append(pat)
+        if self.rules.get("ban_copula_avoidance", True):
+            for pat in COPULA_AVOIDANCE:
+                if re.search(pat, low):
+                    issues.append("copula avoidance ('serves as' -> 'is')")
+                    evidence.append(pat)
+        if self.rules.get("ban_uniform_rhythm", True):
+            rhythm = uniform_rhythm_issue(text)
+            if rhythm:
+                issues.append(rhythm)
+                evidence.append("burstiness")
+
         return SlopReport(not issues, issues, evidence)
+
+
+def uniform_rhythm_issue(text: str) -> str | None:
+    """Detect AI's most statistical fingerprint: uniform sentence rhythm.
+
+    Human posts vary sentence length wildly (fragments next to long lines).
+    Generated prose sits in a narrow band (brandonwise/humanizer's
+    'burstiness' gate). Flag when the post has enough sentences to judge
+    (>=5) and >=80% of them are within +/-2 words of the median length -
+    i.e. the rhythm never breaks. Calibrated so all shipped exemplars pass.
+    """
+    lens = [len(_WORD_RE.findall(s)) for s in sentences(text or "")]
+    lens = [n for n in lens if n > 0]
+    if len(lens) < 5:
+        return None
+    med = sorted(lens)[len(lens) // 2]
+    band = [n for n in lens if abs(n - med) <= 2]
+    if len(band) / len(lens) >= 0.8 and (max(lens) - min(lens)) <= 4:
+        return (f"uniform sentence rhythm: {len(band)}/{len(lens)} sentences "
+                f"near {med} words - mix fragments with longer lines")
+    return None
 
 
 def substantive_ratio(text: str) -> float:
