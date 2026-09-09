@@ -14,14 +14,20 @@ from src.db.repository import Repository
 class VoiceProfile:
     """Builds the stable-voice prompt block from config. Versioned."""
 
-    VERSION = "voice_stable_v1"
+    VERSION = "voice_stable_v2"
 
     def __init__(self, voice_cfg: dict | None = None, learned: list[dict] | None = None):
         self.cfg = voice_cfg if voice_cfg is not None else get_config().voice.get("voice", {})
         self.learned = learned or []
 
+    @property
+    def exemplars(self) -> list[str]:
+        return [str(e) for e in (self.cfg.get("exemplars") or [])]
+
     def to_prompt_block(self) -> str:
         lines = ["VOICE PROFILE (stable):"]
+        if self.cfg.get("persona"):
+            lines.append(f"- persona: {self.cfg['persona']}")
         for key in ("tone", "sentence_length", "vocabulary", "humor", "directness",
                     "technical_depth", "opinion_strength", "punctuation", "emoji_usage",
                     "hashtag_usage"):
@@ -33,6 +39,16 @@ class VoiceProfile:
         endings = self.cfg.get("ending_preferences") or []
         for e in endings:
             lines.append(f"- ending rule: {e}")
+        for s in self.cfg.get("specificity") or []:
+            lines.append(f"- specificity rule: {s}")
+        for v in self.cfg.get("value") or []:
+            lines.append(f"- value rule: {v}")
+        exemplars = self.exemplars
+        if exemplars:
+            lines.append("EXEMPLARS OF THE TARGET QUALITY BAR (style reference "
+                         "only - never copy their topics, facts, or wording):")
+            for i, ex in enumerate(exemplars, 1):
+                lines.append(f"  {i}. {ex}")
         forbidden = self.cfg.get("forbidden_patterns") or []
         if forbidden:
             lines.append("- forbidden patterns: " + "; ".join(forbidden))

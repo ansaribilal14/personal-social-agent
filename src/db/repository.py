@@ -107,12 +107,79 @@ class Repository:
              "relevance": item.get("relevance"),
              "contaminated": 1 if item.get("contaminated") else 0, "run": workflow_run})
 
-    def recent_research(self, limit: int = 20, include_contaminated: bool = False) -> list[dict]:
+    def recent_research(self, limit: int = 20, include_contaminated: bool = False,
+                        max_age_days: int | None = None) -> list[dict]:
+        """Newest research items, optionally restricted to a publish age window.
+
+        Staleness filtering happens in Python because published_at is stored as
+        an RFC-2822 string. If every item is older than the window (e.g. quiet
+        feeds), the newest items are returned anyway - pipelines never starve.
+        """
         rows = self.db.query(
             "SELECT * FROM research_items "
             "WHERE (:inc=1 OR contaminated=0) ORDER BY id DESC LIMIT :n",
-            {"inc": 1 if include_contaminated else 0, "n": limit})
-        return rows
+            {"inc": 1 if include_contaminated else 0, "n": limit * 4})
+        if max_age_days is None:
+            return rows[:limit]
+        from datetime import timedelta
+        from email.utils import parsedate_to_datetime
+        cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
+        fresh = []
+        for r in rows:
+            try:
+                pub = parsedate_to_datetime(str(r["published_at"]))
+            except Exception:
+                continue
+            if pub.tzinfo is None:
+                pub = pub.replace(tzinfo=timezone.utc)
+            if pub >= cutoff:
+                fresh.append(r)
+            if len(fresh) >= limit:
+                break
+        return fresh if fresh else rows[:limit]
+
+    def research_by_ids(self, ids: list[int]) -> list[dict]:
+        """Fetch research items by id, preserving the given order."""
+        if not ids:
+            return []
+        placeholders = ",".join(f":i{n}" for n in range(len(ids)))
+        params = {f"i{n}": int(i) for n, i in enumerate(ids)}
+        rows = self.db.query(
+            f"SELECT * FROM research_items WHERE id IN ({placeholders})", params)
+        order = {int(i): n for n, i in enumerate(ids)}
+        return sorted(rows, key=lambda r: order.get(r["id"], 1 << 30))
+
+    def research_by_urls(self, urls: list[str]) -> list[dict]:
+        """Fetch research items by source URL (claim verification support)."""
+        urls = [u for u in urls if u]
+        if not urls:
+            return []
+        placeholders = ",".join(f":u{n}" for n in range(len(urls)))
+        params = {f"u{n}": u for n, u in enumerate(urls)}
+        return self.db.query(
+            f"SELECT * FROM research_items WHERE source_url IN ({placeholders})",
+            params)
+
+    def version_count(self, post_id: int) -> int:
+        row = self.db.query(
+            "SELECT COUNT(*) AS n FROM post_versions WHERE post_id=:p", {"p": post_id})
+        return int(row[0]["n"]) if row else 0
+
+    def failed_eval_issues(self, post_id: int, version: int) -> list[str]:
+        """Critic issues recorded against a version - feeds auto-revision."""
+        rows = self.db.query(
+            "SELECT issues FROM quality_evaluations "
+            "WHERE post_id=:p AND version=:v AND passed=0", {"p": post_id, "v": version})
+        out = []
+        for r in rows:
+            issues = r["issues"]
+            if isinstance(issues, str):
+                try:
+                    issues = json.loads(issues)
+                except Exception:
+                    issues = [issues]
+            out.extend(str(i) for i in (issues or []))
+        return out
 
     # ---------------------------------------------------------------- ideas
     def save_idea(self, statement: str, pillar: str, evaluation: dict,

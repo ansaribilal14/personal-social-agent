@@ -83,6 +83,31 @@ flowchart LR
 - Every command, approval and transition is written to an append-only audit
   log.
 
+## Content quality: how generic AI slop is kept out
+
+The writer (prompt `writer_v4`) is contractually a **commentator, not a
+summarizer**. Every post must carry a **concrete anchor** (a number, a short
+quote, or a named specific taken from the source article) and a **reader
+takeaway** (something the reader can repeat, use, or decide). The generation
+stage feeds the writer the idea's own source articles - full text when the site
+allows it, the feed summary otherwise - instead of a generic pool of headlines.
+
+Deterministic gates (no LLM involved, fully tested) fail a draft that contains:
+
+- meta-labels ("As an opinion:", "Hot take:") or "not X, it's Y" rhetoric
+- press-release cadence ("opens a new design space", "paves the way",
+  "a new era", "unleashes", "bridges the gap", ...)
+- abstract-noun soup (sentences built from landscape/ecosystem/paradigm/journey)
+- no concrete anchor at all
+- a verbatim copy of any style exemplar from `config/voice.yml`
+
+What still fails goes through a **bounded auto-revision loop**: critic findings
+are fed back through the iterator (max `max_revision_cycles`, default 2), and a
+post that never passes is `BLOCKED` - junk never loops forever and never
+reaches your review queue. Idea selection additionally filters stale research
+(`freshness_days_recent`, default 21 days) so the account does not resurrect
+old news as if it were fresh.
+
 ## Repository layout
 
 ```

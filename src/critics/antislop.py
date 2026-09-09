@@ -1,7 +1,10 @@
 """Anti-AI-slop engine (spec section 23) - first-class, layered.
 
 Layer 1 (deterministic): banned phrases, emoji/em-dash/exclamation caps,
-engagement bait, fake urgency, hashtag caps - from config/quality.yml.
+engagement bait, fake urgency, hashtag caps, meta-labels ("As an opinion:"),
+"not X, it's Y" constructions, press-release cliches, abstract-noun soup,
+and a concrete-anchor requirement (a post must contain at least one number,
+quote, or named specific) - from config/quality.yml.
 Layer 2 (NIM, in critics): "does this sound like a real person with a reason
 to post?" and "does it carry an actual observation/opinion/insight?"
 """
@@ -30,6 +33,61 @@ GENERIC_OPENERS = [
     r"^hot take:",
     r"^as an ai\b",
 ]
+# Meta-labels: the writer announcing what it is about to do instead of doing it.
+META_LABELS = [
+    r"\bas an (opinion|aside|observation|aside)\b",
+    r"^(hot take|my take|real talk|unpopular opinion|serious question)\s*:",
+    r"\bhere'?s (the thing|my take|why this matters)\s*:",
+    r"\bopinion\s*:",
+    r"\ba (thread|thought|observation)\s*:",
+]
+# "not X, it's Y" / "isn't a luxury - they're the critical path" constructions.
+NOT_X_ITS_Y = [
+    r"\bnot (just |only |merely )?[\w' \-]{2,40},?\s*(it'?s|it is|they'?re|they are)\b",
+    r"\b(aren'?t|isn'?t) (just |only |merely )?(a|an|the) [\w' \-]{2,40}[—–,]?\s*"
+    r"(it'?s|it is|they'?re|they are)\b",
+    r"\bless about [\w' \-]{2,40},? more about\b",
+]
+# Press-release cadence: phrases that mark corporate/PR prose, not a person.
+PRESS_RELEASE = [
+    r"\bopens? (up )?(a )?new design space\b",
+    r"\bmoves? the field (from|forward|beyond)\b",
+    r"\bthe real (value|story|question|issue|action) (lies|is|begins)\b",
+    r"\ba new era of\b",
+    r"\bat the intersection of\b",
+    r"\bpaves? the way (for|toward)\b",
+    r"\bbridges? the gap between\b",
+    r"\bunleash(es|ing)?\b",
+    r"\bsupercharg(es|ing|e)\b",
+    r"\bharness(es|ing)? the power\b",
+    r"\bin the realm of\b",
+    r"\braises? important questions\b",
+    r"\ba testament to\b",
+    r"\binders? the importance of\b",
+    r"\bunderscores? the (importance|need)\b",
+    r"\bsparks? (an? )?(important )?(conversation|debate)\b",
+    r"\bthe future of [\w ]+ is (here|now)\b",
+    r"\bunlock(s|ing)? (the |a |new )?(potential|power|value|future)\b",
+    r"\b(heralds?|ushers? in) a new\b",
+    r"\bpoised to (transform|revolutionize|disrupt)\b",
+]
+# Abstract-noun soup: sentences built from these instead of specifics.
+ABSTRACT_NOUNS = [
+    "landscape", "ecosystem", "paradigm", "realm", "sphere", "leverage",
+    "synergy", "journey", "narrative", "conversation", "tapestry", "era",
+    "palette", "afterlife", "critical path", "design space", "value chain",
+    "framework", "toolkit", "north star", "moonshot", "inflection point",
+    "asset", "monetization", "digital exhaust",
+]
+
+# Sentence must be long enough to carry meaning before we judge it.
+_MIN_SENTENCE_WORDS = 4
+
+# Quoted phrases: double quotes, or single quotes NOT mid-word (so
+# "Landauer's principle ... today's" never parses as a quote).
+_QUOTE_RE = re.compile(
+    r"\"([^\"]{3,60})\"|(?<![\w'\u2019])'([^']{3,60})'(?![\w'\u2019])")
+_WORD_RE = re.compile(r"[A-Za-z0-9']+")
 
 
 @dataclass
@@ -37,6 +95,106 @@ class SlopReport:
     passed: bool
     issues: list[str] = field(default_factory=list)
     evidence: list[str] = field(default_factory=list)
+
+
+def sentences(text: str) -> list[str]:
+    return [s.strip() for s in re.split(r"[.!?\n]", text or "") if s.strip()]
+
+
+def concrete_anchors(text: str) -> list[str]:
+    """Concrete specifics a reader can grab: numbers, quotes, named things.
+
+    An anchor is any of:
+    - a digit (measurement, year, version, count, percentage)
+    - a quoted phrase (a real citation or a named concept in quotes)
+    - a capitalized token NOT at sentence start and NOT a stopword/pronoun
+      (heuristic proper noun: a company, product, paper, person, place)
+
+    Returns the matched anchor strings (deduplicated, order preserved).
+    """
+    anchors: list[str] = []
+    for m in re.finditer(r"\d[\d.,%+]*", text or ""):
+        anchors.append(m.group(0))
+    for m in _QUOTE_RE.finditer(text or ""):
+        q = (m.group(1) or m.group(2) or "").strip()
+        if q:
+            anchors.append(f'"{q}"')
+    for s in sentences(text or ""):
+        words = _WORD_RE.findall(s)
+        for idx, w in enumerate(words):
+            if idx == 0 or not w[0].isupper() or len(w) < 3:
+                continue
+            if w.lower() in _NON_PROPER:
+                continue
+            anchors.append(w)
+    seen: set[str] = set()
+    out = []
+    for a in anchors:
+        k = a.lower()
+        if k not in seen:
+            seen.add(k)
+            out.append(a)
+    return out
+
+
+_NON_PROPER = {
+    "the", "a", "an", "and", "but", "or", "so", "if", "it", "its", "it's",
+    "this", "that", "these", "those", "there", "here", "then", "when", "while",
+    "because", "which", "who", "what", "why", "how", "not", "no", "yes",
+    "i", "i'm", "i've", "i'd", "i'll", "you", "your", "we", "our", "they",
+    "their", "he", "she", "his", "her", "in", "on", "at", "to", "for", "of",
+    "with", "from", "by", "as", "is", "are", "was", "were", "be", "been",
+    "being", "do", "does", "did", "don't", "doesn't", "didn't", "can", "can't",
+    "cannot", "could", "would", "should", "will", "won't", "shall", "may",
+    "might", "must", "have", "has", "had", "haven't", "hasn't", "hadn't",
+    "my", "me", "mine", "them", "us", "him", "than", "too", "very", "just",
+    "also", "even", "still", "only", "about", "after", "before", "between",
+    "through", "under", "over", "again", "once", "during", "without", "into",
+    "most", "some", "such", "own", "same", "other", "another", "each", "few",
+    "more", "both", "all", "any", "every", "one", "two", "new", "old", "now",
+    "today", "yesterday", "tomorrow", "monday", "tuesday", "wednesday",
+    "thursday", "friday", "saturday", "sunday", "january", "february",
+    "march", "april", "may", "june", "july", "august", "september", "october",
+    "november", "december",
+}
+
+
+def _abstract_soup_sentence(sentence: str) -> bool:
+    """A sentence built from >=2 abstract nouns with no concrete anchor in it."""
+    low = sentence.lower()
+    hits = sum(1 for n in ABSTRACT_NOUNS if n in low)
+    if hits < 2:
+        return False
+    if re.search(r"\d", sentence):
+        return False
+    if _QUOTE_RE.search(sentence):
+        return False
+    # a proper-noun anchor rescues the sentence
+    words = _WORD_RE.findall(sentence)
+    for idx, w in enumerate(words):
+        if idx > 0 and w[0].isupper() and len(w) >= 3 and w.lower() not in _NON_PROPER:
+            return False
+    return True
+
+
+def _word_run_overlap(a: str, b: str) -> int:
+    """Length of the longest verbatim word run shared by two texts (DP, both
+    texts are short: posts and exemplars)."""
+    aw = [w.lower() for w in _WORD_RE.findall(a or "")]
+    bw = [w.lower() for w in _WORD_RE.findall(b or "")]
+    if not aw or not bw:
+        return 0
+    prev = [0] * (len(bw) + 1)
+    best = 0
+    for i in range(1, len(aw) + 1):
+        cur = [0] * (len(bw) + 1)
+        for j in range(1, len(bw) + 1):
+            if aw[i - 1] == bw[j - 1]:
+                cur[j] = prev[j - 1] + 1
+                if cur[j] > best:
+                    best = cur[j]
+        prev = cur
+    return best
 
 
 class AntiSlopEngine:
@@ -88,6 +246,51 @@ class AntiSlopEngine:
             if re.search(pat, low):
                 issues.append("generic opener pattern: " + pat)
 
+        if self.rules.get("ban_meta_labels", True):
+            for pat in META_LABELS:
+                if re.search(pat, low, re.MULTILINE):
+                    issues.append(f"meta-label instead of writing: {pat}")
+                    evidence.append(pat)
+
+        if self.rules.get("ban_not_x_its_y", True):
+            for pat in NOT_X_ITS_Y:
+                if re.search(pat, low):
+                    issues.append("rhetorical 'not X, it's Y' construction")
+                    evidence.append(pat)
+
+        if self.rules.get("ban_press_release", True):
+            for pat in PRESS_RELEASE:
+                if re.search(pat, low):
+                    issues.append("press-release cliche: " + pat)
+                    evidence.append(pat)
+
+        if self.rules.get("ban_abstract_soup", True):
+            for s in sentences(text):
+                if len(_WORD_RE.findall(s)) >= _MIN_SENTENCE_WORDS and \
+                        _abstract_soup_sentence(s):
+                    issues.append(f"abstract noun soup in: '{s[:70]}...'")
+                    evidence.append(s[:70])
+
+        min_anchors = int(self.rules.get("min_concrete_anchors", 1))
+        if min_anchors > 0:
+            anchors = concrete_anchors(text)
+            if len(anchors) < min_anchors:
+                issues.append(
+                    f"no concrete anchor (number/quote/named specific) - "
+                    f"found {len(anchors)}, need {min_anchors}")
+                evidence.append("concrete_anchors: " + ", ".join(anchors[:5]))
+
+        # Exemplar overlap: the style exemplars in the writer prompt must never
+        # leak into output as near-verbatim text.
+        exemplars = self.rules.get("exemplars") or []
+        for ex in exemplars:
+            run = _word_run_overlap(text, str(ex))
+            if run >= int(self.rules.get("max_exemplar_word_run", 8)):
+                issues.append(
+                    f"copies a style exemplar verbatim ({run}-word run)")
+                evidence.append(str(ex)[:80])
+                break
+
         # Fabricated personal experience: first-person experience verbs without
         # a backing PERSONAL_EXPERIENCE claim.
         if not allow_personal_experience and \
@@ -107,8 +310,9 @@ def substantive_ratio(text: str) -> float:
     dense analytical sentences without the original marker words must count,
     or every well-written opinion post gets flagged as slop.
     """
-    sentences = [s for s in re.split(r"[.!?\n]", text or "") if s.strip()]
-    if not sentences:
+    sents = [s for s in sentences(text)
+             if len(_WORD_RE.findall(s)) >= _MIN_SENTENCE_WORDS]
+    if not sents:
         return 0.0
     markers = re.compile(
         r"\d|\b(because|which|means|should|must|isn'?t|doesn'?t|actually|"
@@ -118,6 +322,5 @@ def substantive_ratio(text: str) -> float:
         r"erodes?|overrides?|solves?|limits?|bottleneck|floor|"
         r"who|why|how)\b",
         re.IGNORECASE)
-    hit = sum(1 for s in sentences
-              if len(re.findall(r"[A-Za-z0-9']+", s)) >= 4 and markers.search(s))
-    return hit / len(sentences)
+    hit = sum(1 for s in sents if markers.search(s))
+    return hit / len(sents)

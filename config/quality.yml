@@ -31,6 +31,21 @@ anti_slop:
     - "tapestry"
     - "navigate the landscape"
     - "It's not just X, it's Y"
+    - "As an opinion"
+    - "Hot take:"
+    - "My take:"
+    - "game changer"
+    - "the future of"
+    - "a new era"
+    - "at the intersection of"
+    - "paves the way"
+    - "bridges the gap"
+    - "raises important questions"
+    - "a testament to"
+    - "sparks a conversation"
+    - "unleash"
+    - "harness the power"
+    - "supercharge"
   max_emoji_count: 0
   max_em_dash_per_post: 1
   max_exclamation_marks: 0
@@ -39,6 +54,11 @@ anti_slop:
   ban_fake_urgency: true         # "before it's too late", "you won't believe"
   ban_fabricated_experience: true # first-person experience claims require PERSONAL_EXPERIENCE claim backing
   min_substantive_ratio: 0.6     # share of sentences carrying observation/opinion/evidence
+  ban_meta_labels: true          # "As an opinion:", "Hot take:", "A thread:" - writing, not announcing
+  ban_not_x_its_y: true          # "not X, it's Y" / "isn't a luxury - it's the critical path"
+  ban_press_release: true        # "opens design space", "moves the field", "unleashes"...
+  ban_abstract_soup: true        # sentences built from landscape/ecosystem/paradigm/etc.
+  min_concrete_anchors: 1        # every post needs >=1 number, quote, or named specific
 
 similarity:                      # originality engine thresholds (0..1)
   exact: 0.98
