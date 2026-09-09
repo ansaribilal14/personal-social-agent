@@ -1,6 +1,7 @@
 """Research + idea discovery + generation + quality + review pipelines."""
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
@@ -9,7 +10,8 @@ from src.config import get_config
 from src.critics.critics import OriginalityCritic  # noqa: F401 (registry import)
 from src.db.repository import Repository
 from src.pipeline.base import PipelineBase
-from src.similarity.engine import OriginalityEngine, content_tokens, jaccard
+from src.similarity.engine import (OriginalityEngine, content_tokens, jaccard,
+                                   trigram_cosine)
 from src.state.machine import State
 
 
@@ -25,6 +27,15 @@ def _idea_source_id_set(idea: dict) -> set[int]:
         except (TypeError, ValueError):
             continue
     return ids
+
+
+# Product-promo sources: a Show HN launch or an "introducing X" announcement
+# is ad copy wearing a news costume - the strategist keeps scoring it high,
+# so the cap in the discovery loop is applied in code.
+_PROMO_SOURCE_RE = re.compile(
+    r"show hn\b|introduc(?:ing|es|e)\b|\blaunched?\b|we (?:built|shipped|"
+    r"launched)\b|announc(?:ing|es|ed)\b|now (?:in )?(?:public )?beta",
+    re.IGNORECASE)
 
 
 def _parse_pub(value: str) -> datetime | None:
@@ -255,6 +266,10 @@ class IdeaDiscoveryPipeline(PipelineBase):
             lines.append(DATA_CLOSE)
             user += "\n\n" + "\n".join(lines)
         raw = self.nim.chat_structured(system, user)
+        # Source titles by research id - used for the promo-source cap below.
+        title_by_id = {int(r["id"]): (str(r.get("title") or "") + " " +
+                                       str(r.get("source_url") or ""))
+                       for r in research if str(r.get("id", "")).isdigit()}
         weights = cfg.strategy.get("scoring_weights", {})
         why_rules = cfg.strategy.get("why_me_test", {})
         min_len = int(why_rules.get("min_answer_length", 20))
@@ -292,6 +307,16 @@ class IdeaDiscoveryPipeline(PipelineBase):
             score = int(round(sum(
                 float(evaluation.get(k, 0)) * float(w)
                 for k, w in weights.items()) / max(sum(float(w) for w in weights.values()), 1)))
+            # Product-promo sources (Show HN launches, "introducing X") read
+            # as press releases no matter how the writer dresses them - cap
+            # below the auto-promotion threshold so a slot never goes to ad
+            # copy (live run 34342374809 shipped a feature list at score 92).
+            src_text = " ".join(
+                str(title_by_id.get(sid, "")) for sid in source_ids)
+            if _PROMO_SOURCE_RE.search(src_text):
+                score = min(score, 69)
+                self.repo.log_event("ideas.promo_source_capped",
+                                    payload={"statement": idea.get("statement", "")[:120]})
             idea_id = self.repo.save_idea(
                 idea.get("statement", ""), idea.get("pillar", ""), evaluation, score,
                 why, source_item_ids=idea.get("source_item_ids") or [],
@@ -344,6 +369,12 @@ class GenerationPipeline(PipelineBase):
                     "idea_id": idea["id"],
                     "reason": "near-identical angle to a selected idea"})
                 continue
+            if self._idea_already_posted(idea):
+                self.repo.log_event("generation.idea_dedup_skipped", payload={
+                    "idea_id": idea["id"],
+                    "reason": "story already produced a post for review "
+                              "(recycled CANDIDATE)"})
+                continue
             selected_sources |= src_ids
             selected_topics.append(topic_key)
             why = _json.loads(idea["why_me"]) if isinstance(idea["why_me"], str) \
@@ -383,6 +414,34 @@ class GenerationPipeline(PipelineBase):
             created.append({"post_id": post_id, "version": version})
         self.succeed()
         return {"drafts": created}
+
+    def _idea_already_posted(self, idea: dict) -> bool:
+        """True when this idea's STORY already produced a post that reached
+        (or is queued for) human review - the recycled-CANDIDATE trap from
+        live run 34342374809: idea 42 sat in the pool for four runs and got
+        drafted again although its story was already WAITING_APPROVAL.
+        Blocked/cancelled drafts never reached a human, so those topics may
+        still be retried with a fresh draft."""
+        row = self.repo.db.query(
+            "SELECT 1 AS x FROM posts WHERE idea_id=:i "
+            "AND state NOT IN ('BLOCKED','CANCELLED') LIMIT 1",
+            {"i": idea["id"]})
+        if row:
+            return True
+        # Same story under a different idea row: match the angle against the
+        # angles of posts a human has seen or will see (trigram cosine - the
+        # same measure the originality critic uses).
+        topic = str(idea.get("angle") or idea["statement"] or "")
+        if not topic.strip():
+            return False
+        rows = self.repo.db.query(
+            "SELECT a.text AS text FROM posts p JOIN angles a ON a.id = p.angle_id "
+            "WHERE p.state NOT IN ('BLOCKED','CANCELLED') "
+            "AND p.created_at >= datetime('now', '-7 days') LIMIT 60")
+        for r in rows:
+            if trigram_cosine(topic, str(r["text"] or "")) >= 0.45:
+                return True
+        return False
 
     def _idea_sources(self, idea: dict) -> list[dict]:
         """Resolve the idea's source_item_ids into research rows, newest first."""
@@ -480,11 +539,18 @@ class QualityPipeline(PipelineBase):
                     else:
                         self.repo.move_state(post_id, State.BLOCKED, actor="quality",
                                              workflow_run=self.run_id)
+                        # The story burned its revision budget without ever
+                        # passing: retire the idea so the pool feeds fresh
+                        # stories instead of recycling this one next run.
+                        if post.get("idea_id"):
+                            self.repo.update_idea_status(post["idea_id"],
+                                                         "DISCARDED")
                         self.repo.log_event("quality.revision_budget_exhausted",
                                             post_id=post_id,
                                             payload={"versions": versions_so_far,
                                                     "score": honest,
-                                                    "hard_fail": hard_fail})
+                                                    "hard_fail": hard_fail,
+                                                    "idea_discarded": True})
                         outcome["decision"] = "BLOCKED"
                     break
                 self.repo.move_state(post_id, State.REVISING, actor="quality",

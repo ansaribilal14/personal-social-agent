@@ -333,6 +333,15 @@ class AntiSlopEngine:
                     issues.append("press-release cliche: " + pat)
                     evidence.append(pat)
 
+        if self.rules.get("ban_feature_enumeration", True):
+            for s in sentences(text):
+                if len(_WORD_RE.findall(s)) >= _MIN_SENTENCE_WORDS and \
+                        _feature_enumeration_sentence(s):
+                    issues.append(
+                        "press-release feature enumeration "
+                        f"(supports/includes + comma list): '{s[:70]}...'")
+                    evidence.append(s[:70])
+
         if self.rules.get("ban_abstract_soup", True):
             for s in sentences(text):
                 if len(_WORD_RE.findall(s)) >= _MIN_SENTENCE_WORDS and \
@@ -479,6 +488,20 @@ _DEMONSTRATIVE_STOP = {
     "is", "are", "was", "were", "means", "changed", "changes", "matters",
     "feels", "seems", "happens", "happened", "said", "sounds", "looks",
     "gets", "got", "kind", "sort", "way", "one", "ones", "thing", "things"}
+
+
+# Press-release feature list: "It supports 24 languages, light/dark modes,
+# React inspection, cache/hard reload, infinite-scroll stop guard, and
+# dark-mode PDF export." Enumeration verb + comma list is marketing copy,
+# not a post - exactly the 'AI slop' shape a live run shipped at score 92
+# (run 34342374809) because no detector recognized it.
+_FEATURE_ENUM_RE = re.compile(
+    r"\b(supports?|includes?|offers?|features|boasts?|provides?|comes with)\b"
+    r"[^.!?\n]*,[^!?\n]*,[^!?\n]*", re.IGNORECASE)
+
+
+def _feature_enumeration_sentence(sentence: str) -> bool:
+    return bool(_FEATURE_ENUM_RE.search(sentence))
 
 
 def _demonstrative_anaphora(sentence: str) -> bool:

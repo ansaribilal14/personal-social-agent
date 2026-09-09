@@ -198,8 +198,13 @@ class Repository:
         self.db.execute("UPDATE ideas SET status=:s WHERE id=:i", {"s": status, "i": idea_id})
 
     def top_ideas(self, limit: int = 3, min_score: int = 0) -> list[dict]:
+        # Candidates expire after 3 days. Without the window, old CANDIDATE
+        # rows that never won a slot recycle for days and re-propose stale
+        # stories (live run 34342374809 drafted idea 42, created four runs
+        # earlier, while fresher stories existed).
         return self.db.query(
             "SELECT * FROM ideas WHERE status='CANDIDATE' AND score >= :m "
+            "AND created_at >= datetime('now', '-3 days') "
             "ORDER BY score DESC LIMIT :n", {"m": min_score, "n": limit})
 
     # ---------------------------------------------------------------- posts

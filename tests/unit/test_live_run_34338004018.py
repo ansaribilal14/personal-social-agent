@@ -17,7 +17,7 @@ import json
 import pytest
 
 from src.state.machine import State
-from tests.conftest import MockNIM
+from tests.conftest import GOOD_IDEA, MockNIM
 
 RAINDROP_POST = (
     "Raindrops are tiny lightning bolts, and they\u2019re corroding cars, "
@@ -196,3 +196,120 @@ def test_review_digest_silent_when_no_blocked_posts(repo, monkeypatch):
                         lambda r, entries: calls.append(entries) or True)
     ReviewPipeline(repo, nim=MockNIM(), discord_client=object()).run()
     assert calls == [], "no blocked posts -> no digest"
+
+
+# ------------------- run 34342374809: recycled stories + press-release slop
+def test_antislop_flags_press_release_feature_enumeration():
+    """Run 34342374809 shipped 'It supports 24 languages, light/dark modes,
+    React inspection, ...' at score 92 - a feature list is ad copy."""
+    from src.critics.antislop import AntiSlopEngine
+    body = ("T3rnel Browser extension solves authentication friction.\n\n"
+            "It supports 24 languages, light/dark modes, React inspection, "
+            "cache/hard reload, and dark-mode PDF export.")
+    r = AntiSlopEngine().check_text(body)
+    assert not r.passed
+    assert any("feature enumeration" in i for i in r.issues)
+    # a plain sentence with commas must NOT trip it
+    ok = AntiSlopEngine().check_text(
+        "The study measured 100-500 volts across millimeter gaps in rain.")
+    assert ok.passed, ok.issues
+
+
+def test_generation_skips_idea_that_already_has_a_post(repo):
+    """Idea 42 recycling: a CANDIDATE idea whose story already produced a
+    review-queue post must not be drafted again."""
+    from src.pipeline.production import GenerationPipeline
+    idea_id = _save_idea(repo, "Spi-Fly sparse coding story",
+                         "Spi-Fly sparse coding keeps old scents")
+    post_id = repo.create_post("x", "single", "AI", idea_id, "its angle")
+    for st in (State.CANDIDATE, State.RESEARCHED, State.STRATEGIZED,
+               State.DRAFTED, State.QUALITY_REVIEW, State.QUALITY_PASSED,
+               State.EDITORIALLY_RANKED, State.WAITING_APPROVAL):
+        repo.move_state(post_id, st, actor="test")
+    # simulate the recycle: the idea row is somehow CANDIDATE again
+    repo.update_idea_status(idea_id, "CANDIDATE")
+
+    nim = MockNIM(responses={"structured_default": {
+        "body": "Body.", "thread_posts": None, "claims": []}})
+    result = GenerationPipeline(repo, nim).run()
+    assert result["drafts"] == [], "recycled idea must not draft again"
+
+
+def test_generation_skips_story_reworded_under_new_idea_row(repo):
+    """Same story reworded as a NEW idea row (different id) must also be
+    caught - trigram cosine vs the existing post's angle."""
+    from src.pipeline.production import GenerationPipeline
+    idea_id = _save_idea(repo, "old row", "Fruit fly brain sparse coding "
+                                     "keeps old scents while learning new ones")
+    post_id = repo.create_post("x", "single", "AI", idea_id,
+                               "Fruit fly brain sparse coding keeps old "
+                               "scents while learning new ones")
+    for st in (State.CANDIDATE, State.RESEARCHED, State.STRATEGIZED,
+               State.DRAFTED, State.QUALITY_REVIEW, State.QUALITY_PASSED,
+               State.EDITORIALLY_RANKED, State.WAITING_APPROVAL):
+        repo.move_state(post_id, st, actor="test")
+    _save_idea(repo, "new row", "Fruit fly brain sparse coding retains old "
+                                "scents while new ones are learned", score=99)
+
+    nim = MockNIM(responses={"structured_default": {
+        "body": "Body.", "thread_posts": None, "claims": []}})
+    result = GenerationPipeline(repo, nim).run()
+    assert result["drafts"] == [], "reworded same-story idea must be skipped"
+
+
+def test_top_ideas_expire_after_three_days(repo):
+    db = repo.db
+    idea_id = _save_idea(repo, "stale story", "stale angle")
+    db.execute("UPDATE ideas SET created_at = datetime('now', '-4 days') "
+               "WHERE id=:i", {"i": idea_id})
+    assert repo.top_ideas(limit=5) == []
+    db.execute("UPDATE ideas SET created_at = datetime('now') "
+               "WHERE id=:i", {"i": idea_id})
+    assert len(repo.top_ideas(limit=5)) == 1
+
+
+def test_promo_source_caps_idea_below_promotion_threshold(repo):
+    """A 'Show HN' launch must never auto-promote, whatever the strategist
+    scores it (the T3rnel feature list topped the ranking at 92)."""
+    from src.pipeline.production import IdeaDiscoveryPipeline
+    rid = repo.save_research_item({
+        "title": "Show HN: T3rnel Browser - drive the browser you're signed into",
+        "source_url": "https://t3ratech.github.io/t3rnel-browser-plugin/",
+        "publisher": "HN", "published_at": "Mon, 08 Sep 2026 00:00:00 GMT",
+        "summary": "s", "category": "current_development",
+        "freshness": "recent"})
+    promo_idea = dict(GOOD_IDEA)
+    promo_idea["source_item_ids"] = [rid]
+    nim = MockNIM(responses={"structured_default": {"ideas": [promo_idea]}})
+    IdeaDiscoveryPipeline(repo, nim).run()
+    row = repo.db.query("SELECT score FROM ideas ORDER BY id DESC LIMIT 1")[0]
+    assert row["score"] <= 69, "promo source must be capped below 70"
+
+
+def test_quality_block_discards_idea(repo):
+    """When quality hard-blocks a post, its idea must be retired so the
+    story stops resurfacing in later runs."""
+    from src.claims.ledger import ClaimLedger
+    from src.critics.quality import QualityEngine
+    from src.generation.writer import Writer
+    from src.pipeline.production import QualityPipeline
+    from src.voice.profile import VoiceProfile
+
+    idea_id = _save_idea(repo, "story that will fail", "angle that will fail")
+    post_id = repo.create_post("x", "single", "AI", idea_id, "failing angle")
+    repo.add_version(post_id, "Body one.", None, {}, {}, [])
+    repo.add_version(post_id, "Body two.", None, {}, {}, [])
+    repo.add_version(post_id, "Body three.", None, {}, {}, [])
+    for st in (State.CANDIDATE, State.RESEARCHED, State.STRATEGIZED,
+               State.DRAFTED):
+        repo.move_state(post_id, st, actor="test")
+
+    pipeline = QualityPipeline(repo, MockNIM())
+    outcome = pipeline._process_post(
+        QualityEngine(), ClaimLedger(), Writer(MockNIM(), repo, VoiceProfile()),
+        repo.get_post(post_id), max_cycles=0)
+
+    assert outcome["decision"] == "BLOCKED"
+    row = repo.db.query("SELECT status FROM ideas WHERE id=:i",
+                        {"i": idea_id})[0]
+    assert row["status"] == "DISCARDED", "blocked story's idea must be retired"
