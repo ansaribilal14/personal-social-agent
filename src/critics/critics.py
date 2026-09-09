@@ -244,7 +244,62 @@ class FactCritic(Critic):
                             ["rewrite or remove unverified claims"] if hard else [])
 
 
+class PostShapeCritic(Critic):
+    """POST-vs-ESSAY shape gate, deterministic (user feedback 2026-09: posts
+    read like statements/essays). Researched how people actually write on X
+    and Threads: hook first line, short blocks separated by blank lines,
+    punchy ending, varied sentence lengths. Enforces exactly that shape in
+    code so no essay-shaped draft can reach review."""
+    name = "post_shape"
+
+    MAX_HOOK_CHARS = 110      # hook line guidance is 40-100; hard fail past 110
+    MIN_BREAK_CHARS = 160     # bodies longer than this MUST contain a blank line
+    MAX_BLOCK_SENTENCES = 2   # a block of 3+ sentences is a paragraph, not a post
+
+    def evaluate(self, post, version, context) -> CriticResult:
+        bodies = [b for b in (version.get("thread_posts") or
+                              [version.get("body", "")]) if b and b.strip()]
+        issues: list[str] = []
+        evidence: list[str] = []
+        for body in bodies:
+            text = body.strip()
+            lines = text.splitlines()
+            first_line = lines[0].strip() if lines else ""
+            if len(text) > self.MIN_BREAK_CHARS and not re.search(r"\n\s*\n", text):
+                issues.append("wall of text: no blank-line blocks (essay shape)")
+                evidence.append(text[:80])
+            if first_line and len(first_line) > self.MAX_HOOK_CHARS:
+                issues.append(f"hook line too long ({len(first_line)} chars, "
+                              f"max {self.MAX_HOOK_CHARS}) - the first line must "
+                              f"stand alone as a hook")
+                evidence.append(first_line[:80])
+            blocks = [b for b in re.split(r"\n\s*\n", text) if b.strip()]
+            for b in blocks:
+                n_sent = len([s for s in re.split(r"(?<=[.!?])\s+", b.strip())
+                              if s.strip()])
+                if n_sent > self.MAX_BLOCK_SENTENCES:
+                    issues.append("block with 3+ sentences (paragraph, not a post block)")
+                    evidence.append(b.strip()[:80])
+                    break
+            if len(blocks) == 1 and len(text) <= self.MIN_BREAK_CHARS and \
+                    len(re.findall(r"(?<=[.!?])\s+", text)) >= 2:
+                # short one-block post that packs 3+ sentences: statement-shaped
+                issues.append("single dense line packs 3+ sentences; break into blocks")
+                evidence.append(text[:80])
+            # essay cadence: every sentence long and even, zero punch lines
+            sents = [s.strip() for s in re.split(r"(?<=[.!?])\s+|\n", text) if s.strip()]
+            if len(sents) >= 3 and all(len(s.split()) > 12 for s in sents):
+                issues.append("every sentence is long and even; no fragments, "
+                              "no punch (essay cadence)")
+        issues = list(dict.fromkeys(issues))
+        score = 92 if not issues else max(30, 92 - 25 * len(issues))
+        return CriticResult(
+            self.name, not issues, score, issues, evidence,
+            ["reformat into hook line + short blank-line blocks + punch ending"]
+            if issues else [])
+
+
 ALL_CRITICS: list[Critic] = [
     OriginalityCritic(), FactCritic(), VoiceCritic(), AntiSlopCritic(),
-    PlatformFitCritic(), HookCritic(), CoherenceCritic(),
+    PlatformFitCritic(), PostShapeCritic(), HookCritic(), CoherenceCritic(),
 ]

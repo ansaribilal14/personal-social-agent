@@ -47,11 +47,19 @@ def main() -> int:
         from src.pipeline.ops import IteratePipeline
         IteratePipeline(repo, _nim()).run(post_id, instruction, actor)
 
+    def run_regenerate(reason: str, actor: str) -> dict:
+        """Reject -> instant full re-run: dispatch the engine workflow now
+        (research -> ideas -> generate -> quality -> review) so fresh review
+        cards land within minutes, steered away from the rejected angles."""
+        from src.review.regenerate import dispatch_engine_run
+        return dispatch_engine_run(repo, reason=reason, actor=actor)
+
     poller = DiscordReviewPoller(
         repo, discord, authorized, channel,
         approve_emoji=(_emoji(cfg, "approve")),
         reject_emoji=(_emoji(cfg, "reject")),
-        run_iterate=run_iterate)
+        run_iterate=run_iterate,
+        run_regenerate=run_regenerate)
     summary = poller.process()
 
     if summary["iterated"]:

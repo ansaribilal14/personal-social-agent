@@ -21,6 +21,7 @@ on:
 
 permissions:
   contents: write   # git-backed state mode: commits state/agent.db
+  actions: write    # reject -> instant regeneration: dispatch the engine workflow
 
 concurrency:
   group: state-db   # serialize ALL state mutations (engine + approval + publish)

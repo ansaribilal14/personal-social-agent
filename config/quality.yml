@@ -12,6 +12,7 @@ hard_gates:                      # passed=false on these -> FAIL regardless of s
   - platform_fit
   - antislop
   - fact
+  - post_shape                   # posts must be shaped like posts, not essays
 
 # Deterministic anti-slop ruleset (editable). Combined with NIM-based judgment,
 # never replaced by it.

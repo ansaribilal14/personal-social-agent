@@ -1,0 +1,191 @@
+"""PostShapeCritic (posts must look like posts, not essays) + the reject ->
+instant-regeneration dispatch path (user feedback 2026-09).
+
+Researched X/Threads conventions encoded here:
+- hook first line stands alone (~40-100 chars, hard fail past 110)
+- short blocks separated by blank lines; 3+ sentence paragraphs fail
+- bodies >160 chars must contain blank-line breaks
+- essay cadence (every sentence long and even) fails
+No test talks to the network; urllib is monkeypatched.
+"""
+from __future__ import annotations
+
+import json
+
+from src.critics.critics import PostShapeCritic
+from src.state.machine import State
+
+
+def _version(body: str) -> dict:
+    return {"version": 1, "body": body, "thread_posts": None}
+
+
+SHAPED_POST = ("Agent tool budgets are about to become the bottleneck.\n\n"
+               "Every framework ships with 40 tools by default, yet production "
+               "agents use 5.\n\n"
+               "The default is the bug.")
+
+ESSAY_POST = ("Agent tool budgets are about to become the bottleneck. Every "
+              "framework ships with 40 tools by default, yet production agents "
+              "use 5. The reason: tool selection errors compound faster than "
+              "capability gaps, and teams that cut tool count saw reliability "
+              "jump 30 percent in their benchmarks while others kept shipping "
+              "regressions that nobody could explain at all.")
+
+
+# ------------------------------------------------------------- post shape
+def test_shaped_post_passes():
+    r = PostShapeCritic().evaluate({}, _version(SHAPED_POST), {})
+    assert r.passed, r.issues
+
+
+def test_essay_wall_of_text_fails():
+    r = PostShapeCritic().evaluate({}, _version(ESSAY_POST), {})
+    assert not r.passed
+    assert any("wall of text" in i for i in r.issues)
+    assert any("3+ sentences" in i for i in r.issues)
+
+
+def test_long_hook_line_fails():
+    body = ("This is an extremely long opening line that just keeps going and "
+            "going far past the character budget a hook should ever need on a "
+            "timeline.\n\nThen a block.")
+    r = PostShapeCritic().evaluate({}, _version(body), {})
+    assert not r.passed
+    assert any("hook line too long" in i for i in r.issues)
+
+
+def test_short_one_liner_is_allowed():
+    body = "Production agents use 5 tools, not 40."
+    r = PostShapeCritic().evaluate({}, _version(body), {})
+    assert r.passed, r.issues
+
+
+def test_short_dense_line_with_3_sentences_fails():
+    body = "Frameworks ship 40 tools. Production agents use 5. Defaults are the bug."
+    r = PostShapeCritic().evaluate({}, _version(body), {})
+    assert not r.passed
+
+
+def test_thread_posts_are_shape_checked_individually():
+    version = {"thread_posts": [SHAPED_POST, ESSAY_POST], "body": None}
+    r = PostShapeCritic().evaluate({}, version, {})
+    assert not r.passed
+
+
+def test_post_shape_is_a_hard_gate_in_quality_engine():
+    from src.critics.quality import QualityEngine
+    assert "post_shape" in QualityEngine().hard_gates
+
+
+# ------------------------------------------------- reject -> regeneration
+def test_dispatch_engine_run_posts_dispatch(monkeypatch, repo):
+    from src.review import regenerate
+    captured = {}
+
+    class FakeResponse:
+        status = 204
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout=20):
+        captured["url"] = req.full_url
+        captured["body"] = json.loads(req.data.decode())
+        captured["headers"] = dict(req.header_items())
+        return FakeResponse()
+
+    monkeypatch.setattr(regenerate, "urlopen", fake_urlopen)
+    outcome = regenerate.dispatch_engine_run(
+        repo, reason="X-2026-AB12 too essay-like", actor="discord:ops",
+        repository="acme/social-agent", token="tok-1", ref="main")
+    assert outcome == {"dispatched": True, "detail": "HTTP 204"}
+    assert captured["url"].endswith(
+        "/repos/acme/social-agent/actions/workflows/engine.yml/dispatches")
+    assert captured["body"]["ref"] == "main"
+    assert captured["body"]["inputs"]["mode"] == "full"
+    assert "X-2026-AB12" in captured["body"]["inputs"]["regen_reason"]
+    auth = [v for k, v in captured["headers"].items() if k.lower() == "authorization"]
+    assert auth == ["Bearer tok-1"]
+    # audited in the DB
+    events = [e["event_type"] for e in repo.events(limit=10)]
+    assert "regenerate.dispatched" in events
+
+
+def test_dispatch_without_token_is_graceful(repo, monkeypatch):
+    from src.review import regenerate
+    for var in ("GITHUB_TOKEN", "GH_TOKEN", "GITHUB_REGEN_TOKEN"):
+        monkeypatch.delenv(var, raising=False)
+    outcome = regenerate.dispatch_engine_run(
+        repo, reason="r", actor="discord:ops", repository="acme/social-agent")
+    assert outcome["dispatched"] is False
+    events = [e["event_type"] for e in repo.events(limit=10)]
+    assert "regenerate.skipped_no_token" in events
+
+
+def test_dispatch_http_error_never_raises(repo, monkeypatch):
+    from src.review import regenerate
+    from urllib.error import HTTPError
+
+    def fake_urlopen(req, timeout=20):
+        raise HTTPError(req.full_url, 422, "Unprocessable",
+                        {}, None)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(regenerate, "urlopen", fake_urlopen)
+    outcome = regenerate.dispatch_engine_run(
+        repo, reason="r", actor="a", repository="acme/social-agent", token="t")
+    assert outcome["dispatched"] is False
+    assert "422" in outcome["detail"]
+    events = [e["event_type"] for e in repo.events(limit=10)]
+    assert "regenerate.dispatch_failed" in events
+
+
+def test_recent_rejection_reasons_feed_ideas_prompt(repo, monkeypatch):
+    """The ideas stage wraps recent rejections as untrusted anti-guidance."""
+    from src.pipeline.production import IdeaDiscoveryPipeline
+    from tests.conftest import MockNIM
+
+    uid = "X-2026-ZZ999"
+    idea = repo.save_idea("stale idea", "AI", {}, 80, {})
+    pid = repo.create_post("x", "single", "AI", idea, "stale angle")
+    repo.add_version(pid, "body", None, {}, {}, [])
+    for s in ("CANDIDATE", "RESEARCHED", "STRATEGIZED", "DRAFTED",
+              "QUALITY_REVIEW", "QUALITY_PASSED", "EDITORIALLY_RANKED",
+              "WAITING_APPROVAL"):
+        repo.move_state(pid, State(s))
+    repo.record_approval_event(pid, 1, "REJECTED", "discord:ops",
+                               reason="sounds like a statement, no real value")
+    repo.move_state(pid, State.REJECTED)
+
+    nim = MockNIM(responses={"structured_default": {"ideas": []}})
+    captured = {}
+    orig = nim.chat_structured
+
+    def spy(system, user, **kwargs):
+        captured["user"] = user
+        return orig(system, user, **kwargs)
+
+    nim.chat_structured = spy
+    IdeaDiscoveryPipeline(repo, nim).run()
+    assert "structured" in nim.calls[0][0] if nim.calls else True
+    prompt = captured["user"]
+    assert "RECENT REJECTIONS" in prompt
+    assert "sounds like a statement" in prompt
+    assert "UNTRUSTED" in prompt.upper()
+
+
+def test_poller_script_wires_regeneration(repo, monkeypatch):
+    """The Actions entrypoint passes run_regenerate into the poller."""
+    import inspect
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[2] /
+           "scripts" / "discord_review_poller.py").read_text()
+    assert "run_regenerate" in src
+    assert "dispatch_engine_run" in src
+    # and the workflow grants the permission to dispatch
+    yml = (Path(__file__).resolve().parents[2] /
+           ".github/workflows/discord-approval.yml").read_text()
+    assert "actions: write" in yml

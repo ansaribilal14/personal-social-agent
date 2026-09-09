@@ -21,6 +21,10 @@ on:
         type: choice
         default: keep
         options: [keep, "on", "off"]
+      regen_reason:
+        description: "why this run was dispatched (e.g. rejected post UIDs + reasons)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -56,6 +60,14 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e .
+
+      - name: Report regeneration trigger (if any)
+        if: ${{ inputs.regen_reason != '' && inputs.regen_reason != null }}
+        run: |
+          echo "REJECTED -> REGENERATION: this run was dispatched because the " \
+               "author rejected a post on Discord. Anti-guidance below is read " \
+               "from the DB by the ideas stage." >> "$GITHUB_STEP_SUMMARY"
+          echo "Reason: ${{ inputs.regen_reason }}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Apply kill switch control (if requested)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.killswitch != 'keep' }}

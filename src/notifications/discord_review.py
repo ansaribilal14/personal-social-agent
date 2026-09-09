@@ -73,7 +73,8 @@ def format_review_card(post: dict, version: dict, scores: dict,
     lines.append("")
     lines.append("HOW TO DECIDE (all right here in Discord):")
     lines.append("\u2705 react on THIS message to approve it")
-    lines.append("\u274c react to reject it")
+    lines.append("\u274c react to reject it - a fresh batch is generated "
+                 "immediately and lands here in a few minutes")
     lines.append("iterate <ID> <instruction> - request changes (type it here)")
     lines.append(f"e.g. iterate {post['post_uid']} make the hook punchier")
     if issue_url:

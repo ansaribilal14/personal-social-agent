@@ -34,9 +34,10 @@ CLAIMS = [{
     "confidence": 80,
 }]
 
-DRAFT_BODY = ("Agent frameworks ship 40 tools by default. Production agents "
-              "use 5. Tool selection errors compound faster than capability "
-              "gaps, so the default is the bug.")
+DRAFT_BODY = ("Agent frameworks ship 40 tools by default.\n\n"
+              "Production agents use 5.\n\n"
+              "Tool selection errors compound faster than capability gaps, "
+              "so the default is the bug.")
 
 
 def test_full_lifecycle(repo, mock_nim, mock_buffer, mock_github):

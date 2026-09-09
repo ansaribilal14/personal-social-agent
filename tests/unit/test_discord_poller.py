@@ -289,3 +289,92 @@ def test_review_pipeline_survives_discord_outage(repo, monkeypatch):
     assert result["review_cards_sent"] == 1   # attempted
     post = repo.posts_in_state(State.WAITING_APPROVAL.value)[0]
     assert repo.get_setting(f"{CARD_KEY_PREFIX}{post['post_uid']}") is None
+
+
+# ------------------------------------------------- reject -> instant regeneration
+def test_message_reject_triggers_regenerate_once(repo, waiting_post):
+    """A typed reject dispatches ONE full regeneration per poll pass, with the
+    rejection reasons as anti-guidance payload."""
+    discord = FakeDiscord()
+    calls = []
+
+    def run_regenerate(reason: str, actor: str) -> dict:
+        calls.append({"reason": reason, "actor": actor})
+        return {"dispatched": True, "detail": "HTTP 204"}
+
+    poller = make_poller(repo, discord)
+    poller.run_regenerate = run_regenerate
+    discord.history = [{"id": "2001", "content":
+                        f"reject {waiting_post['post_uid']} sounds like an essay",
+                        "author": {"id": "111", "username": "ops"}}]
+    # first poll only sets the cursor (never replays history)
+    poller.process()
+    discord.history.append({"id": "2002", "content":
+                            f"reject {waiting_post['post_uid']} no real value",
+                            "author": {"id": "111", "username": "ops"}})
+    summary = poller.process()
+    assert summary["rejected"] == [waiting_post["post_uid"]]
+    assert repo.get_post(waiting_post["id"])["state"] == State.REJECTED.value
+    assert len(calls) == 1
+    assert "no real value" in calls[0]["reason"]
+    assert summary["regenerated"] == {"dispatched": True, "detail": "HTTP 204"}
+    # the confirmation about regeneration is posted to the channel
+    assert any("regeneration started now" in p[1].lower() for p in discord.posted)
+
+
+def test_reaction_reject_triggers_regenerate_once(repo, waiting_post):
+    """Card-reaction rejects also trigger the instant regeneration."""
+    discord = FakeDiscord()
+    register_card(repo, waiting_post, "card-9")
+    discord.reactions[("card-9", "\u274c")] = [{"id": "111", "username": "ops"}]
+    calls = []
+    poller = make_poller(repo, discord)
+    poller.run_regenerate = lambda reason, actor: (
+        calls.append(reason) or {"dispatched": True, "detail": "ok"})
+    summary = poller.process()
+    assert summary["rejected"] == [waiting_post["post_uid"]]
+    assert len(calls) == 1 and waiting_post["post_uid"] in calls[0]
+    assert summary["regenerated"]["dispatched"] is True
+
+
+def test_no_rejects_means_no_regeneration(repo, waiting_post):
+    discord = FakeDiscord()
+    calls = []
+    poller = make_poller(repo, discord)
+    poller.run_regenerate = lambda reason, actor: (
+        calls.append(reason) or {"dispatched": True, "detail": "ok"})
+    # first poll only sets the cursor (never replays history)
+    discord.history = [{"id": "3001", "content": "ordinary chatter",
+                        "author": {"id": "111", "username": "ops"}}]
+    poller.process()
+    discord.history.append({"id": "3002", "content":
+                            f"approve {waiting_post['post_uid']}",
+                            "author": {"id": "111", "username": "ops"}})
+    discord.history.append({"id": "3003", "content": "more chatter",
+                            "author": {"id": "111", "username": "ops"}})
+    summary = poller.process()
+    assert summary["approved"] == [waiting_post["post_uid"]]
+    assert calls == []
+    assert summary["regenerated"] is None
+
+
+def test_regen_callback_failure_never_breaks_poll(repo, waiting_post):
+    """A crashing regeneration callback is absorbed; the reject still lands."""
+    discord = FakeDiscord()
+    poller = make_poller(repo, discord)
+    def boom(reason, actor):
+        raise RuntimeError("actions api down")
+    poller.run_regenerate = boom
+    # first poll only sets the cursor (never replays history)
+    discord.history = [{"id": "4001", "content": "ordinary chatter",
+                        "author": {"id": "111", "username": "ops"}}]
+    poller.process()
+    discord.history.append({"id": "4002", "content":
+                            f"reject {waiting_post['post_uid']} stale",
+                            "author": {"id": "111", "username": "ops"}})
+    discord.history.append({"id": "4003", "content": "ignored filler",
+                            "author": {"id": "111", "username": "ops"}})
+    summary = poller.process()
+    assert summary["rejected"] == [waiting_post["post_uid"]]
+    assert summary["regenerated"]["dispatched"] is False
+    assert repo.get_post(waiting_post["id"])["state"] == State.REJECTED.value

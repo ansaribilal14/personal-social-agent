@@ -64,10 +64,13 @@ class PollSummary:
     rejected: list[str] = field(default_factory=list)
     iterated: list[dict] = field(default_factory=list)   # {post_id, uid, instruction}
     skipped: list[dict] = field(default_factory=list)    # {uid/author, why}
+    reject_reasons: list[str] = field(default_factory=list)  # feeds instant regen
+    regenerated: dict | None = None                      # dispatch outcome
 
     def as_dict(self) -> dict:
         return {"approved": self.approved, "rejected": self.rejected,
-                "iterated": self.iterated, "skipped": self.skipped}
+                "iterated": self.iterated, "skipped": self.skipped,
+                "regenerated": self.regenerated}
 
 
 def _clean(text: str, limit: int) -> str:
@@ -78,7 +81,7 @@ class DiscordReviewPoller:
     def __init__(self, repo, discord, authorized_ids: set[str],
                  channel_id: str, approve_emoji: str = "\u2705",
                  reject_emoji: str = "\u274c", max_instruction_chars: int = MAX_INSTRUCTION_CHARS,
-                 run_iterate=None):
+                 run_iterate=None, run_regenerate=None):
         """All dependencies are injected (testability).
 
         repo        : src.db.repository.Repository (the ONLY state store)
@@ -87,6 +90,11 @@ class DiscordReviewPoller:
         channel_id  : the review channel (DISCORD_CHANNEL_REVIEW)
         run_iterate : optional callback(post_id:int, instruction:str, actor:str)
                       executed for accepted iterate commands (uses NIM in prod)
+        run_regenerate : optional callback(reason:str, actor:str) -> dict
+                      executed ONCE per poll pass when >=1 post was rejected;
+                      dispatches a full engine re-run immediately so the
+                      author gets fresh choices at that moment (prod: GitHub
+                      Actions workflow dispatch)
         """
         self.repo = repo
         self.discord = discord
@@ -97,6 +105,7 @@ class DiscordReviewPoller:
         self.reject_emoji = reject_emoji
         self.max_instruction_chars = max_instruction_chars
         self.run_iterate = run_iterate
+        self.run_regenerate = run_regenerate
 
     # ------------------------------------------------------------- auth
     @staticmethod
@@ -276,6 +285,7 @@ class DiscordReviewPoller:
         self._confirm(f"\u274c REJECTED `{uid}` v{current} by {actor}"
                       + (f" - _{reason}_" if reason else ""))
         summary.rejected.append(uid)
+        summary.reject_reasons.append(f"[{uid}] {reason}".strip())
 
     def _iterate(self, post: dict, instruction: str, actor: str,
                  summary: PollSummary) -> None:
@@ -313,8 +323,31 @@ class DiscordReviewPoller:
                                  "instruction": instruction, "actor": actor})
 
     # ------------------------------------------------------------- entry
+    def _regenerate_after_rejects(self, summary: PollSummary) -> None:
+        """One instant full re-run per poll pass when something was rejected.
+        The fresh batch is steered away from the rejected angles (ideas stage
+        reads rejection reasons from the DB)."""
+        if not summary.reject_reasons or self.run_regenerate is None:
+            return
+        reason = " | ".join(summary.reject_reasons)[:400]
+        try:
+            outcome = self.run_regenerate(reason=reason, actor="discord-poller")
+        except Exception as exc:
+            outcome = {"dispatched": False, "detail": type(exc).__name__}
+        summary.regenerated = outcome
+        if outcome.get("dispatched"):
+            self._confirm("\U0001f504 Full regeneration started NOW (research -> "
+                          "ideas -> drafts -> quality -> review), steered away "
+                          "from what you rejected. Fresh review cards will "
+                          "land in this channel in a few minutes.")
+        else:
+            self._confirm("\u2139\ufe0f Fresh candidates will be generated on the "
+                          f"next scheduled cycle (regen dispatch failed: "
+                          f"{outcome.get('detail', 'unknown')}).")
+
     def process(self) -> dict:
-        """One poll pass: reactions first (one-click), then channel messages."""
+        """One poll pass: reactions first (one-click), then channel messages,
+        then one instant regeneration if anything was rejected."""
         summary = PollSummary()
         if not self.allowed:
             # No authorization source at all -> refuse to act (fail-safe).
@@ -323,6 +356,7 @@ class DiscordReviewPoller:
         if self.channel_id:
             self._process_card_reactions(summary)
             self._process_messages(summary)
+            self._regenerate_after_rejects(summary)
         else:
             self._skip(summary, "poll", "no review channel configured")
         return summary.as_dict()

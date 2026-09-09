@@ -26,7 +26,8 @@ class QualityEngine:
     def __init__(self, thresholds: dict | None = None):
         cfg = get_config().quality
         self.thresholds = thresholds or cfg.get("thresholds", {})
-        hard_gates = self.thresholds.get("hard_gates", ["platform_fit", "antislop", "fact"])
+        hard_gates = self.thresholds.get(
+            "hard_gates", ["platform_fit", "antislop", "fact", "post_shape"])
         self.hard_gates = set(hard_gates)
 
     def run_critic(self, critic, post: dict, version: dict, context: dict) -> CriticResult:
@@ -71,7 +72,8 @@ class QualityEngine:
     def _composite(results: list[CriticResult]) -> int:
         """Weighted composite computed in code - never an LLM-asserted score."""
         weights = {"platform_fit": 1.2, "fact": 1.2, "antislop": 1.2,
-                   "originality": 1.1, "voice": 1.0, "hook": 0.8, "coherence": 0.8}
+                   "originality": 1.1, "voice": 1.0, "post_shape": 1.0,
+                   "hook": 0.8, "coherence": 0.8}
         num = sum(r.score * weights.get(r.critic, 1.0) for r in results)
         den = sum(weights.get(r.critic, 1.0) for r in results)
         return int(round(num / den)) if den else 0

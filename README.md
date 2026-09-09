@@ -37,14 +37,15 @@ schedule and publish call.
 flowchart LR
     A[Research\nNVIDIA NIM] --> B[Ideas\nscored in code]
     B --> C[Generation\nyour voice]
-    C --> D[Quality gate\n10 critics + validators]
-    D --> E[Review\nDiscord card: react or type]
+    C --> D[Quality gate\n11 critics + validators]
+    D --> E[Review\nDiscord card: react, type, or buttons]
     E -->|approve| F[Scheduling\ncollision-protected]
     F --> G[Outbox\nidempotent]
     G --> H[Buffer\nX + Threads live]
     H --> I[Analytics\nweekly report]
     E -->|/iterate| C
-    E -->|/reject| X[Archive]
+    E -->|reject| R[Instant regeneration\nsteered away from\nrejected angles]
+    R --> A
 ```
 
 1. **Research** — discovers current developments, social signals and evergreen
@@ -55,13 +56,15 @@ flowchart LR
    "Why me?" test, holds weak ones back.
 3. **Generation** — writes X singles/threads and Threads posts in your voice,
    with a claim ledger tracking every factual claim to a source.
-4. **Quality** — ten editorial critics + deterministic validators + anti-slop
-   engine + originality engine compute PASS/FAIL/REVISE. Nothing borderline
-   ships.
+4. **Quality** — eleven editorial critics (including the post-shape gate) +
+   deterministic validators + anti-slop engine + originality engine compute
+   PASS/FAIL/REVISE. Nothing borderline ships.
 5. **Review** — approved-by-critics posts become Discord review cards in
-   `#social-review`. **Approve with one click (✅ reaction)**, reject with ❌,
-   or type `iterate <ID> <instruction>` as a plain message. GitHub issue
-   review is optional (off by default in `config/review.yml`).
+   `#social-review`. **Approve with one click (✅ reaction)**, reject with ❌ —
+   rejection instantly triggers a fresh research → ideas → drafts cycle
+   steered away from what you rejected, until you approve — or type
+   `iterate <ID> <instruction>` as a plain message. GitHub issue review is
+   optional (off by default in `config/review.yml`).
 6. **Publishing** — approved versions go through an idempotent outbox to
    Buffer's (live-verified) GraphQL API with collision-protected scheduling
    (Asia/Kolkata windows), bounded retries and failure alerts to Discord.
@@ -310,7 +313,7 @@ Everything happens in your `#social-review` channel:
 
 **One-click:** react on the review card
 - ✅ → approve that exact version
-- ❌ → reject it
+- ❌ → reject it — **a full regeneration starts immediately** (see below)
 
 **Or type a plain message** (leading `/` optional):
 
@@ -319,6 +322,14 @@ approve X-2026-AB12C
 reject X-2026-AB12C the hook is weak
 iterate X-2026-AB12C make it more concrete, cite the benchmark
 ```
+
+**Reject → instant regeneration loop:** the moment a rejection lands (reaction,
+typed command, or slash command), the engine workflow is dispatched on the spot
+— fresh research → fresh ideas → fresh drafts → quality gates → new review
+cards, typically within minutes. The ideas stage reads your rejection reasons
+from the audit log and is explicitly steered away from rejected angles and
+patterns, so every loop gives you materially different choices **until you
+approve one**.
 
 The `discord-approval.yml` workflow polls the channel every 5 minutes, drives
 the same audited state machine, and replies with a confirmation. Accepted
@@ -332,9 +343,16 @@ approving v1 never approves v2.
 Optional: set `surfaces: [discord, github]` in `config/review.yml` to ALSO get
 an audit-trail issue per post with `/approve`-style comments.
 
-**Slash commands** (only when the bot process runs 24/7 via docker-compose):
+**Slash commands + buttons** (while the bot process runs, e.g. docker-compose):
+`/review` shows every waiting post with **[Approve] [Iterate] [Reject]**
+buttons (Reject opens a reason box, then regenerates instantly). Plus
 `/queue` `/show <uid>` `/approve <uid>` `/reject <uid> [reason]`
 `/iterate <uid> <instruction>` `/killswitch on|off|status` `/status` `/ping`.
+
+> Regeneration dispatch uses `GITHUB_TOKEN` inside Actions (`actions: write`
+> is already granted in `discord-approval.yml`). When running the bot locally,
+> export `GITHUB_REGEN_TOKEN` (PAT with repo scope) and `GITHUB_REPOSITORY`;
+> without a token, regeneration falls back to the next scheduled cycle.
 
 ### Local CLI
 

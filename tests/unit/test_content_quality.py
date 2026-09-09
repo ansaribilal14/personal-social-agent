@@ -10,9 +10,10 @@ from src.state.machine import State
 from tests.conftest import MockNIM
 
 
-ANCHORED_POST = ("Agent frameworks ship 40 tools by default. Production agents "
-                 "use 5. Tool selection errors compound faster than capability "
-                 "gaps, so the default is the bug.")
+ANCHORED_POST = ("Agent frameworks ship 40 tools by default.\n\n"
+                 "Production agents use 5.\n\n"
+                 "Tool selection errors compound faster than capability gaps, "
+                 "so the default is the bug.")
 
 
 # --------------------------------------------------------------- antislop v2
@@ -120,28 +121,32 @@ def test_research_by_urls(repo):
 
 # -------------------------------------------------------- writer v4 + voice v2
 
-def test_writer_prompt_v4_has_contracts_and_exemplars():
+def test_writer_prompt_v5_has_shape_and_contracts():
     from src.prompts import render, versions_used
     text = render("writer", voice_block="VOICE")
-    for marker in ("SPECIFICITY CONTRACT", "VALUE CONTRACT", "BANNED CONSTRUCTIONS",
-                   "concrete_anchors", "EXEMPLARS OF THE TARGET QUALITY BAR"):
+    for marker in ("SHAPE CONTRACT", "SPECIFICITY CONTRACT", "VALUE CONTRACT",
+                   "BANNED CONSTRUCTIONS", "concrete_anchors", "hook_line",
+                   "EXEMPLARS OF THE TARGET QUALITY BAR"):
         assert marker in text, marker
-    assert versions_used("writer") == {"writer": "v4"}
+    assert versions_used("writer") == {"writer": "v5"}
 
 
-def test_strategist_v3_and_iterator_v3_registered():
-    from src.prompts import versions_used
-    assert versions_used("strategist") == {"strategist": "v3"}
-    assert versions_used("iterator") == {"iterator": "v3"}
+def test_strategist_v4_and_iterator_v4_registered():
+    from src.prompts import render, versions_used
+    assert versions_used("strategist") == {"strategist": "v4"}
+    assert versions_used("iterator") == {"iterator": "v4"}
+    assert "RECENT REJECTIONS" in render("strategist")
+    assert "POST SHAPE" in render("iterator")
 
 
-def test_voice_profile_v2_block():
+def test_voice_profile_v3_block():
     from src.voice.profile import VoiceProfile
     block = VoiceProfile().to_prompt_block()
     assert "persona:" in block
+    assert "format rule:" in block
     assert "specificity rule:" in block
     assert "value rule:" in block
-    assert VoiceProfile.VERSION == "voice_stable_v2"
+    assert VoiceProfile.VERSION == "voice_stable_v3"
 
 
 def test_exemplar_verbatim_copy_fails():
@@ -149,17 +154,17 @@ def test_exemplar_verbatim_copy_fails():
     from src.config import get_config
     exemplars = get_config().voice.get("voice", {}).get("exemplars") or []
     assert len(exemplars) >= 4
-    copied = ("Reversible computing could cut AI inference energy by 90% or more "
-              "- in theory, decades out. Not useful for production hardware yet.")
+    copied = ("Frameworks demo thirty tools; real deployments settle at "
+              "four or five, so something is off.")
     rules = dict(get_config().quality.get("anti_slop", {}))
     rules["exemplars"] = exemplars
     r = AntiSlopEngine(rules).check_text(copied)
     assert not r.passed
     assert any("exemplar" in i for i in r.issues)
     # a merely similar but original post is fine
-    original = ("Adiabatic logic could trim inference energy 90 percent in "
-                "simulation, but reversible gates run about 100 kHz today. "
-                "That is a research roadmap, not a datacenter plan.")
+    original = ("Tool budgets quietly decide agent reliability. A survey put "
+                "default tool counts at 40 while real deployments settle near "
+                "5, and trimming the list cut regression rates noticeably.")
     r2 = AntiSlopEngine(rules).check_text(original)
     assert r2.passed, r2.issues
 

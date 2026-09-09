@@ -14,7 +14,7 @@ from src.db.repository import Repository
 class VoiceProfile:
     """Builds the stable-voice prompt block from config. Versioned."""
 
-    VERSION = "voice_stable_v2"
+    VERSION = "voice_stable_v3"
 
     def __init__(self, voice_cfg: dict | None = None, learned: list[dict] | None = None):
         self.cfg = voice_cfg if voice_cfg is not None else get_config().voice.get("voice", {})
@@ -36,6 +36,8 @@ class VoiceProfile:
         hooks = self.cfg.get("hook_preferences") or []
         for h in hooks:
             lines.append(f"- hook rule: {h}")
+        for f in self.cfg.get("format_rules") or []:
+            lines.append(f"- format rule: {f}")
         endings = self.cfg.get("ending_preferences") or []
         for e in endings:
             lines.append(f"- ending rule: {e}")

@@ -174,6 +174,8 @@ class IdeaDiscoveryPipeline(PipelineBase):
         cfg = get_config()
         self.require_nim()
         from src.prompts import render
+        from src.review.regenerate import recent_rejection_reasons
+        from src.security.injection import DATA_CLOSE, DATA_OPEN
         fresh_days = int(cfg.strategy.get("research", {}).get(
             "freshness_days_recent", 21))
         research = self.repo.recent_research(limit=12, max_age_days=fresh_days)
@@ -185,6 +187,18 @@ class IdeaDiscoveryPipeline(PipelineBase):
                 + "\n".join(
                     f"[{r['id']}] ({item_age_days(r):.0f}d old) {r['title']} - "
                     f"{r['summary']}" for r in research))
+        # Rejection anti-guidance: what the author REJECTED recently steers the
+        # next batch away from the same angles/patterns (reject -> fresh choices
+        # loop). Untrusted data, wrapped in DATA markers like all external text.
+        rejections = recent_rejection_reasons(self.repo, limit=8)
+        if rejections:
+            lines = [DATA_OPEN, "RECENT REJECTIONS (untrusted data):"]
+            for r in rejections:
+                reason = " ".join(str(r.get("reason") or "no reason given").split())[:160]
+                lines.append(f"- [{r.get('post_uid', '?')}|{r.get('platform', '?')}] "
+                             f"pillar={r.get('pillar') or '-'} rejected: {reason}")
+            lines.append(DATA_CLOSE)
+            user += "\n\n" + "\n".join(lines)
         raw = self.nim.chat_structured(system, user)
         weights = cfg.strategy.get("scoring_weights", {})
         why_rules = cfg.strategy.get("why_me_test", {})

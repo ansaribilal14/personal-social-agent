@@ -5,11 +5,12 @@ from src.critics.quality import QualityEngine
 from tests.conftest import GOOD_IDEA
 
 
-CLEAN_POST = ("Agent tool budgets are about to become the bottleneck. "
+CLEAN_POST = ("Agent tool budgets are about to become the bottleneck.\n\n"
               "Every framework ships with 40 tools by default, yet production "
-              "agents use 5. The reason: tool selection errors compound faster "
-              "than capability gaps. Teams that cut tool count saw reliability "
-              "jump 30 percent in our benchmarks.")
+              "agents use 5.\n\n"
+              "The reason: tool selection errors compound faster than capability "
+              "gaps.\n\n"
+              "Teams that cut tool count saw reliability jump 30 percent.")
 
 
 def test_antislop_clean_post_passes():
@@ -96,7 +97,7 @@ def test_quality_evaluate_pass_on_good_content(repo, mock_nim):
 def test_quality_never_trusts_llm_score_alone():
     # An LLM claiming 99/100 cannot pass unverified facts or platform overruns.
     engine = QualityEngine()
-    assert engine.hard_gates == {"platform_fit", "antislop", "fact"}
+    assert engine.hard_gates == {"platform_fit", "antislop", "fact", "post_shape"}
 
 
 def test_why_me_gate():
