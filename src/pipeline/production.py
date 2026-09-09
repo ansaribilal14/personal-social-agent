@@ -312,12 +312,29 @@ class QualityPipeline(PipelineBase):
                          .get("max_revision_cycles", 2))
         results = []
         for post in self.repo.posts_in_state(State.DRAFTED.value, State.QUALITY_FAILED.value):
-            post_id = post["id"]
+            outcome = self._process_post(engine, ledger, writer, post, max_cycles)
+            results.append({"post_id": post["id"], **outcome})
+        self.succeed()
+        return {"evaluated": results}
 
-            # Bounded auto-revision: a failed post gets its critic findings fed
-            # back through the writer BEFORE re-evaluation. After the revision
-            # budget it is BLOCKED - junk never loops and never reaches review.
-            if str(post["state"]) == State.QUALITY_FAILED.value:
+    def _process_post(self, engine, ledger, writer, post: dict,
+                      max_cycles: int) -> dict:
+        """Evaluate -> auto-revise -> re-evaluate WITHIN THIS RUN, bounded by
+        max_revision_cycles plus a hard iteration guard. Same-run revision is
+        what makes 'reject -> review fresh cards immediately' possible: drafts
+        no longer wait for the next cron slot to get their revision budget.
+
+        Budget rule (unchanged): more versions than max_cycles -> BLOCKED.
+        When the revision model itself fails, the post is re-evaluated as-is
+        and the loop guard prevents any infinite cycling.
+        """
+        post_id = post["id"]
+        outcome: dict = {"decision": "SKIPPED", "overall_score": None}
+        attempts_allowed = max_cycles + 2   # evaluate v1 + revise rounds + failure guard
+        for _ in range(attempts_allowed):
+            post = self.repo.get_post(post_id) or post
+            state = str(post["state"])
+            if state == State.QUALITY_FAILED.value:
                 versions_so_far = self.repo.version_count(post_id)
                 if versions_so_far > max_cycles:
                     self.repo.move_state(post_id, State.BLOCKED, actor="quality",
@@ -325,15 +342,18 @@ class QualityPipeline(PipelineBase):
                     self.repo.log_event("quality.revision_budget_exhausted",
                                         post_id=post_id,
                                         payload={"versions": versions_so_far})
-                    continue
+                    outcome["decision"] = "BLOCKED"
+                    break
                 self.repo.move_state(post_id, State.REVISING, actor="quality",
                                      workflow_run=self.run_id)
                 self._auto_revise(writer, post_id, int(post["current_version"]))
                 post = self.repo.get_post(post_id) or post
 
-            post_id = post["id"]
             version_no = post["current_version"]
             version = self.repo.get_version(post_id, version_no)
+            if version is None:
+                outcome["decision"] = "NO_VERSION"
+                break
             # Wide window, no age filter: claim verification must find the
             # item that backs each claim regardless of its publish date.
             research = self.repo.recent_research(limit=60)
@@ -368,11 +388,8 @@ class QualityPipeline(PipelineBase):
                     get_config().quality.get("anti_slop", {}).get(
                         "min_substantive_ratio", 0.6)),
             }
-            # retry path: the machine requires QUALITY_FAILED -> REVISING
-            # before re-review (direct QUALITY_FAILED -> QUALITY_REVIEW is
-            # an invalid transition - found live, first real failure).
-            if str(post["state"]) == State.DRAFTED.value:
-                pass  # DRAFTED -> QUALITY_REVIEW is the normal edge
+            # reachable from DRAFTED (first evaluation) and REVISING (retry
+            # edge; direct QUALITY_FAILED -> QUALITY_REVIEW is invalid)
             self.repo.move_state(post_id, State.QUALITY_REVIEW, actor="quality",
                                  workflow_run=self.run_id)
             decision = engine.evaluate(post, version, context)
@@ -380,7 +397,7 @@ class QualityPipeline(PipelineBase):
                 self.repo.save_quality_eval(post_id, version_no, r.critic, r.passed,
                                             r.score, r.issues, r.evidence,
                                             r.recommended_changes, r.engine)
-            overall = {"decision": decision.decision,
+            outcome = {"decision": decision.decision,
                        "overall_score": decision.overall_score,
                        "issues": decision.issues[:10]}
             if decision.decision == "PASS":
@@ -396,20 +413,17 @@ class QualityPipeline(PipelineBase):
                     # below editorial ranking bar: hold for review queue next run
                     self.repo.log_event("quality.below_ranking", post_id=post_id,
                                         payload={"score": decision.overall_score})
+                break
             elif decision.decision == "REVISE":
-                # The state machine has no QUALITY_REVIEW -> REVISING edge by
-                # design: revisions happen at the top of the next quality run
-                # (QUALITY_FAILED -> REVISING -> iterate -> re-review), bounded
-                # by max_revision_cycles, then the post is BLOCKED.
                 self.repo.move_state(post_id, State.QUALITY_FAILED, actor="quality")
                 self.repo.log_event("quality.revise_recommended", post_id=post_id,
                                     payload={"score": decision.overall_score,
                                              "issues": decision.issues[:5]})
+                continue   # same-run revision (bounded)
             else:
                 self.repo.move_state(post_id, State.QUALITY_FAILED, actor="quality")
-            results.append({"post_id": post_id, **overall})
-        self.succeed()
-        return {"evaluated": results}
+                continue   # same-run revision (bounded)
+        return outcome
 
     def _auto_revise(self, writer, post_id: int, version_no: int) -> None:
         """Produce the next version from the failed version's critic findings."""
