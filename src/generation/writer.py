@@ -76,6 +76,7 @@ class Writer:
         required = ("body",)
         if any(k not in result for k in required):
             raise GenerationError(f"writer output missing keys: {sorted(result.keys())}")
+        self._normalize_shape(result, platform, format)
         # Source auto-attach: FACT claims without a URL are attributed to the
         # best-matching research item. With exactly one source URL every FACT
         # claim can only come from that source; with several, token overlap
@@ -98,6 +99,28 @@ class Writer:
         result["prompt_versions"] = versions_used("writer")
         result["voice_snapshot"] = {"voice_version": self.voice.VERSION}
         return result
+
+    @staticmethod
+    def _normalize_shape(result: dict, platform: str, format: str,
+                         budget: int | None = None) -> None:
+        """Deterministic shape normalization (live-run finding: the model
+        ignores whitespace structure). Re-breaks the body into hook + blocks,
+        drops canned exemplar punches and cuts least-substantive sentences
+        for length. Never rewrites words - facts survive untouched."""
+        try:
+            from src.config import get_config
+            from src.generation.shaper import normalize_post_shape, max_post_chars
+            max_chars = int(budget or max_post_chars(platform, format))
+            exemplars = (get_config().voice.get("voice", {}).get("exemplars") or [])
+            if result.get("thread_posts"):
+                result["thread_posts"] = [
+                    normalize_post_shape(p, max_chars, exemplars)
+                    for p in result["thread_posts"]]
+            elif result.get("body"):
+                result["body"] = normalize_post_shape(result["body"], max_chars,
+                                                       exemplars)
+        except Exception:
+            pass  # shaping must never crash generation; critics still gate
 
     @staticmethod
     def _attach_best_source(claim_dicts: list, research_items: list[dict]) -> None:
@@ -157,6 +180,10 @@ class Writer:
         ])
         result = self.nim.chat_structured(system, user)
         result.setdefault("thread_posts", None)
+        from src.validation.limits import platform_budget
+        budget = platform_budget(post_row["platform"], post_row["format"])
+        self._normalize_shape(result, post_row["platform"], post_row["format"],
+                              budget=budget)
         self._attach_best_source(result.get("claims") or [], research_items or [])
         result.setdefault("claims", [])
         result.setdefault("changes_made", [])

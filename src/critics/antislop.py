@@ -359,11 +359,15 @@ def substantive_ratio(text: str) -> float:
 
 def concrete_anchor_in_sentence(sentence: str) -> bool:
     """True when the sentence contains a proper-noun anchor: a capitalized
-    mid-sentence token that is not a stopword, or a sentence-initial acronym
-    (NASA, GraphQL - all-caps) from the same heuristic as concrete_anchors."""
+    mid-sentence token that is not a stopword, a sentence-initial acronym
+    (NASA, GraphQL - all-caps), or a sentence-initial possessive proper noun
+    ("Roman's", "Hubble's" - common openings in shaped posts)."""
     words = _WORD_RE.findall(sentence)
     for idx, w in enumerate(words):
-        if w[0].isupper() and len(w) >= 3 and w.lower() not in _NON_PROPER:
-            if idx > 0 or w.isupper():
-                return True
+        if not (w[0].isupper() and len(w) >= 3 and w.lower() not in _NON_PROPER):
+            continue
+        if idx > 0:
+            return True
+        if idx == 0 and (w.isupper() or w.rstrip("s").endswith("'")):
+            return True
     return False

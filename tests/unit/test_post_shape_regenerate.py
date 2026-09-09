@@ -317,3 +317,62 @@ def test_ideas_stage_holds_duplicate_source_ideas(repo):
     held = repo.db.query(
         "SELECT COUNT(*) AS n FROM ideas WHERE status='HELD'")[0]["n"]
     assert promoted == 1 and held >= 1
+
+
+# ------------------------------------------ deterministic shape normalizer
+def test_shaper_breaks_wall_into_blocks_and_splits_hook():
+    from src.generation.shaper import normalize_post_shape
+    wall = ("Roman's first image needs over half a million 4K TVs to display "
+            "it. Hubble's view fits in a postage stamp compared to this. The "
+            "mission's field of view rewrites what we can map in one shot.")
+    shaped = normalize_post_shape(wall, max_chars=280)
+    lines = shaped.splitlines()
+    assert shaped != wall
+    assert "\n\n" in shaped                      # blocks exist
+    assert len(lines[0]) <= 100                  # hook line short
+    assert "Roman's first image" in lines[0]     # hook = first sentence
+    # every word survives: re-breaking never rewrites
+    assert sorted(w.lower().strip(".,'") for w in wall.split()) == \
+           sorted(w.lower().strip(".,'") for w in shaped.split())
+
+
+def test_shaper_drops_canned_punch_and_cut_for_length():
+    from src.generation.shaper import normalize_post_shape
+    body = ("Agent tool budgets are quietly becoming the wall.\n\n"
+            "Frameworks demo thirty tools; real deployments settle at four or "
+            "five. Picking the wrong tool compounds faster than a weak model.\n\n"
+            "The default is the bug.")
+    shaped = normalize_post_shape(body, max_chars=280,
+                                  exemplars=["Agent tool budgets are quietly "
+                                             "becoming the wall.\n\nThe default "
+                                             "is the bug."])
+    assert "The default is the bug" not in shaped
+    assert len(shaped) <= 280
+
+
+def test_shaper_cuts_weakest_sentence_first():
+    from src.generation.shaper import normalize_post_shape
+    body = ("The chips arrived late.\n\n"
+            "Nvidia reported 4.5 million units shipped in Q3.\n\n"
+            "It was a Tuesday, weather was fine, and nobody expected the "
+            "trucks that carried them across the long desert highways.")
+    shaped = normalize_post_shape(body, max_chars=120)
+    # the numbered, anchored sentence survives; generic filler goes first
+    assert "4.5 million" in shaped
+    assert "Nvidia" in shaped
+    assert len(shaped) <= 120
+
+
+def test_writer_normalizes_nim_output_shape():
+    """The Writer applies the shaper to whatever NIM returns."""
+    from src.generation.writer import Writer
+    from tests.conftest import MockNIM
+    wall = ("Roman's first image needs over half a million 4K TVs to display "
+            "it. Hubble's view fits in a postage stamp compared to this. The "
+            "mission's field of view rewrites what we can map in one shot.")
+    nim = MockNIM(responses={"structured_default": {
+        "body": wall, "thread_posts": None, "claims": [],
+        "why_this_exists": "x", "concrete_anchors": []}})
+    result = Writer(nim, None).write("x", "single", "angle", "AI", [], [])
+    assert "\n\n" in result["body"]
+    assert len(result["body"].splitlines()[0]) <= 100

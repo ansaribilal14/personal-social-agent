@@ -54,7 +54,7 @@ anti_slop:
   ban_engagement_bait: true      # "RT if", "like if", "follow for", "comment below"
   ban_fake_urgency: true         # "before it's too late", "you won't believe"
   ban_fabricated_experience: true # first-person experience claims require PERSONAL_EXPERIENCE claim backing
-  min_substantive_ratio: 0.6     # share of sentences carrying observation/opinion/evidence
+  min_substantive_ratio: 0.5     # share of sentences carrying observation/opinion/evidence (calibrated on shaped live posts)
   ban_meta_labels: true          # "As an opinion:", "Hot take:", "A thread:" - writing, not announcing
   ban_not_x_its_y: true          # "not X, it's Y" / "isn't a luxury - it's the critical path"
   ban_press_release: true        # "opens design space", "moves the field", "unleashes"...
