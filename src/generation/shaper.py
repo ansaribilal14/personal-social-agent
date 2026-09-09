@@ -28,6 +28,11 @@ PUNCH_MAX_RUN = 5              # closing verbatim-overlap with an exemplar
 
 _CLAUSE_SPLIT_RE = re.compile(r",\s+|;\s+|\s+-\s+|\s+—\s+")
 
+# Sentence boundary: never split before a lowercase word (protects "E. coli",
+# "e.g.", "i.e." from becoming fragments - live run produced "engineered E.")
+_ABBREV_MASKS = [("E. coli", "E§COLI§"), ("U.S.", "U§S§"), ("U.K.", "U§K§"),
+                 ("e.g.", "e§g§"), ("i.e.", "i§e§"), ("etc.", "etc§")]
+
 
 def max_post_chars(platform: str, format: str) -> int:
     """Numeric per-post budget from config/platforms.yml (the single source of
@@ -44,10 +49,21 @@ def max_post_chars(platform: str, format: str) -> int:
 
 
 def _split_sentences(text: str) -> list[str]:
-    """Sentences across the whole body, preserving abbreviations badly is
-    acceptable here: we only re-break, never rewrite."""
-    raw = re.split(r"(?<=[.!?])\s+|\n+", text.strip())
-    return [s.strip() for s in raw if s.strip()]
+    """Sentences across the whole body. A period followed by a lowercase word
+    ("E. coli", "e.g. anything") is never a boundary; masks handle the
+    abbreviation cases where the follower is capitalized."""
+    masked = text.strip()
+    for a, b in _ABBREV_MASKS:
+        masked = masked.replace(a, b)
+    raw = re.split(r'(?<=[.!?])\s+(?=[A-Z0-9"\'\u201c\u2018(])|\n+', masked)
+    out = []
+    for s in raw:
+        s = s.strip()
+        for a, b in _ABBREV_MASKS:
+            s = s.replace(b, a)
+        if s:
+            out.append(s)
+    return out
 
 
 def _shorten_hook(hook: str) -> str:

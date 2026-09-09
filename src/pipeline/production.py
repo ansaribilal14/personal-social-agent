@@ -178,7 +178,10 @@ class IdeaDiscoveryPipeline(PipelineBase):
         from src.security.injection import DATA_CLOSE, DATA_OPEN
         fresh_days = int(cfg.strategy.get("research", {}).get(
             "freshness_days_recent", 21))
-        research = self.repo.recent_research(limit=12, max_age_days=fresh_days)
+        # Wide pool: the staleness guard below removes used items, so a small
+        # pool exhausts within a few runs and the fallback re-proposes the
+        # same stories (live runs 4-8).
+        research = self.repo.recent_research(limit=30, max_age_days=fresh_days)
         # Staleness guard: research items that already produced a promoted
         # idea in the LAST 24H are excluded, or every run re-proposes the same
         # top stories and candidates die on duplication (the "stale posts"
@@ -365,12 +368,16 @@ class QualityPipeline(PipelineBase):
         what makes 'reject -> review fresh cards immediately' possible: drafts
         no longer wait for the next cron slot to get their revision budget.
 
-        Budget rule (unchanged): more versions than max_cycles -> BLOCKED.
+        Budget rule: more versions than max_cycles -> BLOCKED on hard-gate
+        failures (facts/platform/slop/shape); with only soft failures and a
+        composite >= 60 the post goes to review WITH HONEST SCORES - the
+        human owns the decision (config contract).
         When the revision model itself fails, the post is re-evaluated as-is
         and the loop guard prevents any infinite cycling.
         """
         post_id = post["id"]
         outcome: dict = {"decision": "SKIPPED", "overall_score": None}
+        last_decision = None
         attempts_allowed = max_cycles + 2   # evaluate v1 + revise rounds + failure guard
         for _ in range(attempts_allowed):
             post = self.repo.get_post(post_id) or post
@@ -378,12 +385,48 @@ class QualityPipeline(PipelineBase):
             if state == State.QUALITY_FAILED.value:
                 versions_so_far = self.repo.version_count(post_id)
                 if versions_so_far > max_cycles:
-                    self.repo.move_state(post_id, State.BLOCKED, actor="quality",
-                                         workflow_run=self.run_id)
-                    self.repo.log_event("quality.revision_budget_exhausted",
-                                        post_id=post_id,
-                                        payload={"versions": versions_so_far})
-                    outcome["decision"] = "BLOCKED"
+                    # Budget exhausted. The config contract says candidates go
+                    # to review WITH HONEST SCORES when the remaining failures
+                    # are soft (voice/originality/hook judgment) - the human
+                    # owns the decision. Hard-gate failures (facts, platform
+                    # fit, slop, essay shape) still BLOCK: junk never reaches
+                    # the queue.
+                    hard_fail = any(
+                        r.critic in engine.hard_gates and not r.passed
+                        for r in (getattr(last_decision, "critic_results", [])
+                                  if last_decision is not None else []))
+                    honest = (last_decision.overall_score
+                              if last_decision is not None else 0)
+                    if not hard_fail and honest >= 60:
+                        # legal path to review: QUALITY_FAILED -> REVISING ->
+                        # QUALITY_REVIEW -> QUALITY_PASSED (no direct edge)
+                        self.repo.move_state(post_id, State.REVISING, actor="quality",
+                                             workflow_run=self.run_id)
+                        self.repo.move_state(post_id, State.QUALITY_REVIEW,
+                                             actor="quality")
+                        self.repo.move_state(post_id, State.QUALITY_PASSED,
+                                             actor="quality")
+                        self.repo.set_editorial_score(post_id, honest)
+                        self.repo.move_state(post_id, State.EDITORIALLY_RANKED,
+                                             actor="quality")
+                        self.repo.move_state(post_id, State.WAITING_APPROVAL,
+                                             actor="quality")
+                        self.repo.log_event(
+                            "quality.reviews_with_honest_scores",
+                            post_id=post_id,
+                            payload={"score": honest,
+                                     "versions": versions_so_far})
+                        outcome["decision"] = "REVIEW_WITH_HONEST_SCORES"
+                        outcome["overall_score"] = honest
+                    else:
+                        self.repo.move_state(post_id, State.BLOCKED, actor="quality",
+                                             workflow_run=self.run_id)
+                        self.repo.log_event("quality.revision_budget_exhausted",
+                                            post_id=post_id,
+                                            payload={"versions": versions_so_far,
+                                                    "score": honest,
+                                                    "hard_fail": hard_fail})
+                        outcome["decision"] = "BLOCKED"
                     break
                 self.repo.move_state(post_id, State.REVISING, actor="quality",
                                      workflow_run=self.run_id)
@@ -434,6 +477,7 @@ class QualityPipeline(PipelineBase):
             self.repo.move_state(post_id, State.QUALITY_REVIEW, actor="quality",
                                  workflow_run=self.run_id)
             decision = engine.evaluate(post, version, context)
+            last_decision = decision
             for r in decision.critic_results:
                 self.repo.save_quality_eval(post_id, version_no, r.critic, r.passed,
                                             r.score, r.issues, r.evidence,

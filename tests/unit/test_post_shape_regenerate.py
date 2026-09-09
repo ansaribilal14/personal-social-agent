@@ -14,6 +14,7 @@ import json
 
 from src.critics.critics import PostShapeCritic
 from src.state.machine import State
+from tests.conftest import MockNIM
 
 
 def _version(body: str) -> dict:
@@ -393,3 +394,32 @@ def test_writer_iterate_path_also_normalizes_shape():
     result = Writer(nim, None).iterate(post_row, current, "tighten", [], [])
     assert "\n\n" in result["body"]
     assert len(result["body"].splitlines()[0]) <= 100
+
+
+def test_budget_exhausted_soft_failures_reach_review_with_honest_scores(repo):
+    """Config contract: when the revision budget is exhausted and the only
+    remaining failures are soft (voice judge), the post goes to review with
+    its honest score instead of being blocked. Hard gates still block."""
+    from src.pipeline.production import QualityPipeline
+    from src.state.machine import State
+    body = ("Two genetic codes now run inside one E. coli cell.\n\n"
+            "A 2026 study shows orthogonal translation systems coexist "
+            "without interference.\n\n"
+            "Protein design just gained a second alphabet, which doubles "
+            "the search space.")
+    idea = repo.save_idea("i", "AI", {}, 80, {})
+    pid = repo.create_post("x", "single", "AI", idea, "a")
+    for st in (State.CANDIDATE, State.RESEARCHED, State.STRATEGIZED, State.DRAFTED):
+        repo.move_state(pid, st)
+    repo.add_version(pid, body, None, {}, [], [])
+    repo.move_state(pid, State.QUALITY_REVIEW)
+    repo.move_state(pid, State.QUALITY_FAILED)
+    nim = MockNIM(responses={
+        "Fix these critic findings": {"body": body, "thread_posts": None,
+                                      "claims": [], "changes_made": []},
+        "Score this post against the voice profile": {"passed": False,
+                                                      "score": 30,
+                                                      "issues": ["flat"]}})
+    QualityPipeline(repo, nim).run()
+    assert repo.get_post(pid)["state"] == State.WAITING_APPROVAL.value
+    assert repo.get_post(pid)["editorial_score"] is not None
