@@ -62,7 +62,10 @@ class MockNIM:
                 if isinstance(value, str):
                     return json.loads(value)
                 return json.loads(json.dumps(value))
-        return self.responses.get("structured_default", {"ok": True})
+        # deep-copy: callers mutate the returned dict (setdefault fallbacks);
+        # sharing one dict across calls leaks mutations between tests.
+        default = self.responses.get("structured_default", {"ok": True})
+        return json.loads(json.dumps(default))
 
 
 GOOD_IDEA = {

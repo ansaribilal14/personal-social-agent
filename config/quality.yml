@@ -72,6 +72,9 @@ anti_slop:
   ban_ing_riders: true           # "..., showcasing seamless integration"
   ban_copula_avoidance: true     # "serves as" -> "is"
   ban_uniform_rhythm: true       # 5+ sentences of near-equal length = AI burstiness fingerprint
+  max_punch_word_run: 4          # final block sharing >=4 verbatim words with an exemplar
+                                 # punch = canned echo ("Default is the bug." dodged the
+                                 # old default of 5; live run 34333991666)
 
 similarity:                      # originality engine thresholds (0..1)
   exact: 0.98

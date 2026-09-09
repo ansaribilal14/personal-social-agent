@@ -248,3 +248,26 @@ def test_sentence_initial_possessive_proper_noun_counts_as_anchor():
             "not neglect - durability contracts")
     r = _check(body)
     assert r.passed, r.issues
+
+
+# ------------------------------------- live-run 34333991666 regressions
+def test_canned_punch_echo_at_four_words_is_caught():
+    """'Default is the bug.' echoed the exemplar punch 'The default is the
+    bug.' with a 4-word run and dodged the old threshold of 5."""
+    body = ("El Nino is now stronger than at any point in the last 1,000 "
+            "years.\n\nJulie Cole at Michigan reconstructed a thousand-year "
+            "record from Galapagos corals.\n\nDefault is the bug.")
+    exemplars = get_config().voice.get("voice", {}).get("exemplars") or []
+    r = _check(body, exemplars=exemplars)  # AntiSlopCritic injects these
+    assert not r.passed
+    assert any("punch" in i or "closer" in i for i in r.issues), r.issues
+
+
+def test_shaper_drops_four_word_punch_echo():
+    from src.generation.shaper import normalize_post_shape
+    exemplars = ["X.\n\nThe default is the bug."]
+    shaped = normalize_post_shape(
+        "El Nino broke a thousand-year coral record.\n\nThe eastern Pacific "
+        "has never seen this.\n\nDefault is the bug.", 270, exemplars)
+    assert "Default is the bug" not in shaped
+    assert "coral record" in shaped  # the real content survives

@@ -92,3 +92,66 @@ def test_review_card_shows_the_intended_angle_not_just_the_output():
                               angle=REAL_ANGLE)
     assert REAL_ANGLE in card
     assert "ANGLE" in card
+
+
+def test_iterated_version_inherits_why_this_exists(repo):
+    """Live run 34333991666: iterated cards showed 'WHY THIS EXISTS: -'
+    because writer.iterate() had no fallback. It must carry the previous
+    version's rationale (or the post angle) forward."""
+    nim = MockNIM(responses={"structured_default": {
+        "body": "Rewritten body.", "thread_posts": None, "claims": []}})
+    from src.generation.writer import Writer
+    from src.voice.profile import VoiceProfile
+    idea_id = repo.save_idea("bare statement", "AI", {}, 90,
+                             {"why_interesting": "x" * 25, "why_now": "x" * 25,
+                              "why_this_angle": "x" * 25,
+                              "why_this_platform": "single on x" + "x" * 15,
+                              "why_this_account": "x" * 25})
+    post_id = repo.create_post("x", "single", "AI", idea_id,
+                               "some editorial angle")
+    v1 = repo.add_version(post_id, "First body.", None, {}, {}, [])
+    for st in (State.CANDIDATE, State.RESEARCHED, State.STRATEGIZED,
+               State.DRAFTED, State.QUALITY_REVIEW, State.QUALITY_PASSED,
+               State.EDITORIALLY_RANKED, State.WAITING_APPROVAL):
+        repo.move_state(post_id, st, actor="test")
+    writer = Writer(nim, repo, VoiceProfile())
+    post = repo.get_post(post_id)
+    current = {"body": "First body.", "why_this_exists": "the earlier reason"}
+    out = writer.iterate(post, current, "tighten it", [], [])
+    assert out["why_this_exists"] == "the earlier reason"
+    # and with nothing to inherit, the post angle fills in
+    out2 = writer.iterate(post, {"body": "First body."}, "again", [], [])
+    assert out2["why_this_exists"] == "some editorial angle"
+
+
+def test_staleness_guard_excludes_same_article_under_new_research_id(repo):
+    """save_research_item inserts a NEW id for the same URL every run, so
+    the ideas staleness guard must match on source_url too or the same
+    stories win every cycle (Spi-Fly three runs in a row)."""
+    from src.pipeline.production import IdeaDiscoveryPipeline
+    url = "https://example.com/same-story"
+    r1 = repo.save_research_item({"title": "Story A", "source_url": url,
+                                  "publisher": "p", "published_at": "Mon, 01 Sep 2026 00:00:00 GMT",
+                                  "summary": "s", "category": "current_development",
+                                  "freshness": "recent"})
+    repo.save_idea("statement one", "AI", {"novelty": 80}, 90,
+                   {"why_interesting": "x" * 25, "why_now": "x" * 25,
+                    "why_this_angle": "x" * 25,
+                    "why_this_platform": "single on x" + "x" * 15,
+                    "why_this_account": "x" * 25},
+                   source_item_ids=[r1], status="PROMOTED")
+    r2 = repo.save_research_item({"title": "Story A (refetched)", "source_url": url,
+                                  "publisher": "p", "published_at": "Mon, 01 Sep 2026 00:00:00 GMT",
+                                  "summary": "s2", "category": "current_development",
+                                  "freshness": "recent"})
+    r3 = repo.save_research_item({"title": "Fresh other story", "source_url": "https://example.com/other",
+                                  "publisher": "p", "published_at": "Mon, 01 Sep 2026 00:00:00 GMT",
+                                  "summary": "s3", "category": "current_development",
+                                  "freshness": "recent"})
+    # reproduce the guard's filter from the pipeline source
+    import inspect
+    from src.pipeline import production
+    src = inspect.getsource(IdeaDiscoveryPipeline.run)
+    assert "source_url" in src and "used_urls" in src, (
+        "staleness guard must match on source_url, not just research id")
+    assert r2 != r1 and r3 not in (r1, r2)

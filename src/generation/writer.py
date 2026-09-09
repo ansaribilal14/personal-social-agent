@@ -192,6 +192,22 @@ class Writer:
         self._attach_best_source(result.get("claims") or [], research_items or [])
         result.setdefault("claims", [])
         result.setdefault("changes_made", [])
+        if not str(result.get("why_this_exists") or "").strip():
+            # Iterated versions must not show a bare "-" on the Discord card
+            # (live run 34333991666: v4 cards showed WHY THIS EXISTS: -).
+            # Carry forward the previous version's rationale, then the post's
+            # stored angle (resolved from the angles table via angle_id).
+            prev = str(current_version.get("why_this_exists") or "").strip()
+            angle_text = post_row.get("angle")
+            if not angle_text and post_row.get("angle_id") and self.repo is not None:
+                try:
+                    rows = self.repo.db.query(
+                        "SELECT text FROM angles WHERE id=:i",
+                        {"i": post_row["angle_id"]})
+                    angle_text = rows[0]["text"] if rows else None
+                except Exception:
+                    angle_text = None
+            result["why_this_exists"] = prev or (angle_text or "")
         result["prompt_versions"] = versions_used("writer", "iterator")
         result["voice_snapshot"] = {"voice_version": self.voice.VERSION}
         result["iteration_instruction"] = instruction

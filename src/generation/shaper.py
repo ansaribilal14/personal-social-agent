@@ -24,7 +24,10 @@ from src.critics.antislop import (concrete_anchor_in_sentence, sentences,
 
 HOOK_MAX_CHARS = 100
 BLOCK_SPLIT_MIN_CHARS = 60     # sentences shorter than this may share a block
-PUNCH_MAX_RUN = 5              # closing verbatim-overlap with an exemplar
+PUNCH_MAX_RUN = 4              # closing verbatim-overlap with an exemplar
+                               # (4: "Default is the bug." echoed the exemplar
+                               # punch "The default is the bug." with a 4-word
+                               # run - live run 34333991666)
 
 _CLAUSE_SPLIT_RE = re.compile(r",\s+|;\s+|\s+-\s+|\s+—\s+")
 

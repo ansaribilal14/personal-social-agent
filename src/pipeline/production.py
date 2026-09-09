@@ -187,13 +187,19 @@ class IdeaDiscoveryPipeline(PipelineBase):
         # top stories and candidates die on duplication (the "stale posts"
         # loop). After 24h a story may return with a fresh angle. Fallback to
         # the unfiltered pool when everything is already used.
+        # Match on BOTH research id and source_url: save_research_item inserts
+        # a NEW row (new id) for the same article on every run, so id-only
+        # matching never fired and the same stories won every cycle
+        # (live runs 34333991666 / 34326017321: same Spi-Fly + El Nino angles,
+        # originality 55, three runs in a row).
         used_ids = self.repo.db.query(
-            "SELECT DISTINCT source_item_ids FROM ideas "
-            "WHERE status IN ('PROMOTED','CANDIDATE') AND source_item_ids IS NOT NULL "
-            "AND created_at >= datetime('now', '-1 day')")
+            "SELECT DISTINCT i.source_item_ids AS sids FROM ideas i "
+            "WHERE i.status IN ('PROMOTED','CANDIDATE') "
+            "AND i.source_item_ids IS NOT NULL "
+            "AND i.created_at >= datetime('now', '-1 day')")
         used: set[int] = set()
         for row in used_ids:
-            raw = row["source_item_ids"]
+            raw = row["sids"]
             if isinstance(raw, str):
                 raw = [s for s in raw.split(",") if str(s).strip()]
             for s in (raw or []):
@@ -201,7 +207,17 @@ class IdeaDiscoveryPipeline(PipelineBase):
                     used.add(int(str(s).strip()))
                 except (TypeError, ValueError):
                     continue
-        unused = [r for r in research if int(r["id"]) not in used]
+        # Resolve used source URLs in Python (SQLite has no csv_each; the
+        # source_item_ids lists are comma-joined id strings).
+        used_urls: set[str] = set()
+        if used:
+            marks = ",".join(str(i) for i in sorted(used))
+            used_urls = {r["u"] for r in self.repo.db.query(
+                "SELECT DISTINCT source_url AS u FROM research_items "
+                "WHERE id IN (" + marks + ") AND source_url IS NOT NULL")}
+        unused = [r for r in research
+                  if int(r["id"]) not in used
+                  and (r.get("source_url") or "") not in used_urls]
         if unused:
             research = unused
         pillars = [p["name"] for p in cfg.strategy.get("pillars", []) if p.get("enabled")]
