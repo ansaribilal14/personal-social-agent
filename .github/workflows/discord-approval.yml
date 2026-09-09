@@ -33,6 +33,8 @@ jobs:
     timeout-minutes: 15
     env:
       SQLITE_PATH: state/agent.db
+      GITHUB_TOKEN: ${{ github.token }}      # reject -> instant engine re-dispatch
+      GITHUB_REPOSITORY: ${{ github.repository }}
       NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
       NIM_MODEL: ${{ secrets.NIM_MODEL }}
       NIM_TIMEOUT_SECONDS: "180"
