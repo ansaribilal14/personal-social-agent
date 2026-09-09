@@ -180,10 +180,7 @@ class Writer:
         ])
         result = self.nim.chat_structured(system, user)
         result.setdefault("thread_posts", None)
-        from src.validation.limits import platform_budget
-        budget = platform_budget(post_row["platform"], post_row["format"])
-        self._normalize_shape(result, post_row["platform"], post_row["format"],
-                              budget=budget)
+        self._normalize_shape(result, post_row["platform"], post_row["format"])
         self._attach_best_source(result.get("claims") or [], research_items or [])
         result.setdefault("claims", [])
         result.setdefault("changes_made", [])

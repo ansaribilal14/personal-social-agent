@@ -376,3 +376,20 @@ def test_writer_normalizes_nim_output_shape():
     result = Writer(nim, None).write("x", "single", "angle", "AI", [], [])
     assert "\n\n" in result["body"]
     assert len(result["body"].splitlines()[0]) <= 100
+
+
+def test_writer_iterate_path_also_normalizes_shape():
+    """Regression: the iterate path silently swallowed a str budget and
+    shipped unshaped revisions (live run 6)."""
+    from src.generation.writer import Writer
+    from tests.conftest import MockNIM
+    wall = ("Roman's first image needs over half a million 4K TVs to display "
+            "it. Hubble's view fits in a postage stamp compared to this. The "
+            "mission's field of view rewrites what we can map in one shot.")
+    nim = MockNIM(responses={"structured_default": {
+        "body": wall, "thread_posts": None, "claims": [], "changes_made": []}})
+    post_row = {"id": 1, "platform": "x", "format": "single"}
+    current = {"body": "old", "version": 1}
+    result = Writer(nim, None).iterate(post_row, current, "tighten", [], [])
+    assert "\n\n" in result["body"]
+    assert len(result["body"].splitlines()[0]) <= 100
