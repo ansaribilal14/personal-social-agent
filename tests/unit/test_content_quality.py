@@ -250,12 +250,12 @@ def test_quality_auto_revises_failed_post_with_findings(repo):
 def test_quality_blocks_post_after_revision_budget(repo):
     from src.pipeline.production import QualityPipeline
     pid = _failed_post(repo, [GENERIC_BODY, GENERIC_BODY + " Extra.",
-                              GENERIC_BODY + " More."])
+                              GENERIC_BODY + " More.", GENERIC_BODY + " Again."])
     nim = MockNIM()   # must not even be consulted
     QualityPipeline(repo, nim).run()
 
     assert repo.get_post(pid)["state"] == State.BLOCKED.value
-    assert repo.version_count(pid) == 3          # no version churn
+    assert repo.version_count(pid) == 4          # no version churn
     assert not any(kind == "structured" for kind, _ in nim.calls)
 
 

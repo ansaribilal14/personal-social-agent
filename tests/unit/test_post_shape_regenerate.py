@@ -189,3 +189,33 @@ def test_poller_script_wires_regeneration(repo, monkeypatch):
     yml = (Path(__file__).resolve().parents[2] /
            ".github/workflows/discord-approval.yml").read_text()
     assert "actions: write" in yml
+
+
+# ---------------------------------------------- calibration fixes from live run
+def test_substantive_ratio_counts_proper_noun_anchors():
+    """Named specifics (NASA, Max Planck Institute) carry substance even
+    without essay marker words - live run produced false 0.00 ratios."""
+    from src.critics.antislop import substantive_ratio
+    post = ("Tiny sparks eat paint.\n\n"
+            "A study from the Max Planck Institute shows charged drops blow "
+            "holes in coatings.\n\n"
+            "NASA saw the same effect on shuttle panels.")
+    assert substantive_ratio(post) >= 0.6
+    # pure fluff still fails
+    assert substantive_ratio("Nice day out today. Hope you agree. Cool stuff.") < 0.5
+
+
+def test_part_labels_are_meta_labels():
+    """The model literally wrote 'Hook: ...' in a live run - block it."""
+    from src.critics.antislop import AntiSlopEngine
+    for labeled in ("Hook: Raindrops punch through paint.",
+                    "Punch: the default is the bug.",
+                    "Takeaway: ship less."):
+        r = AntiSlopEngine().check_text(labeled)
+        assert not r.passed, labeled
+
+
+def test_revision_budget_bumped_to_three():
+    from src.config import get_config
+    assert int(get_config().quality.get("thresholds", {}).get(
+        "max_revision_cycles", 2)) == 3

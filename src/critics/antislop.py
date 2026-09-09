@@ -40,6 +40,7 @@ META_LABELS = [
     r"\bhere'?s (the thing|my take|why this matters)\s*:",
     r"\bopinion\s*:",
     r"\ba (thread|thought|observation)\s*:",
+    r"^(hook|punch|setup|context|point|takeaway)\s*:",   # labeling the post's parts
 ]
 # "not X, it's Y" / "isn't a luxury - they're the critical path" constructions.
 NOT_X_ITS_Y = [
@@ -303,12 +304,13 @@ class AntiSlopEngine:
 def substantive_ratio(text: str) -> float:
     """Share of sentences that carry actual content (spec section 23 questions).
 
-    A sentence counts as substantive when it contains a number, a claim verb,
-    an opinion marker, an analysis noun (cost/trust/ownership/...), or a real
-    question word - and is long enough to carry meaning at all (>= 4 words,
-    so fragments like "Strong take." never count). Calibrated on live drafts:
-    dense analytical sentences without the original marker words must count,
-    or every well-written opinion post gets flagged as slop.
+    A sentence counts as substantive when it contains a number, a proper-noun
+    anchor (a named company/product/person/place - what concrete_anchors
+    recognizes), an analysis/opinion marker, or a real question word - and is
+    long enough to carry meaning at all (>= 4 words, so fragments like
+    "Strong take." never count). Calibrated on live drafts: dense analytical
+    sentences and named-specific posts without the original marker words must
+    count, or every well-written opinion post gets flagged as slop.
     """
     sents = [s for s in sentences(text)
              if len(_WORD_RE.findall(s)) >= _MIN_SENTENCE_WORDS]
@@ -320,7 +322,29 @@ def substantive_ratio(text: str) -> float:
         r"cost|trade|trade-?offs?|ownership|owning|profit|power|control|trust|"
         r"privacy|surveillance|anxiety|risk|attention|asset|persists?|outlasts?|"
         r"erodes?|overrides?|solves?|limits?|bottleneck|floor|"
+        r"study|studies|shows?|found|measured|researchers?|survey|"
         r"who|why|how)\b",
         re.IGNORECASE)
-    hit = sum(1 for s in sents if markers.search(s))
+    hit = 0
+    for s in sents:
+        if markers.search(s):
+            hit += 1
+            continue
+        # a proper-noun anchor carries substance even without marker words:
+        # "Max Planck Institute", "NASA", "GraphQL" - anything concrete_anchors
+        # would list as a named specific.
+        if concrete_anchor_in_sentence(s):
+            hit += 1
     return hit / len(sents)
+
+
+def concrete_anchor_in_sentence(sentence: str) -> bool:
+    """True when the sentence contains a proper-noun anchor: a capitalized
+    mid-sentence token that is not a stopword, or a sentence-initial acronym
+    (NASA, GraphQL - all-caps) from the same heuristic as concrete_anchors."""
+    words = _WORD_RE.findall(sentence)
+    for idx, w in enumerate(words):
+        if w[0].isupper() and len(w) >= 3 and w.lower() not in _NON_PROPER:
+            if idx > 0 or w.isupper():
+                return True
+    return False

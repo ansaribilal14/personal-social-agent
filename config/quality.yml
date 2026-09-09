@@ -6,7 +6,7 @@ thresholds:
   min_overall_score: 75          # weighted composite, computed in code
   min_critic_score: 70           # any critic below this -> REVISE at minimum
   fail_on_critic_failed: true    # any critic returning passed=false on a hard gate -> FAIL
-  max_revision_cycles: 2         # after this, candidates go to review with honest scores
+  max_revision_cycles: 3         # after this, candidates go to review with honest scores
 
 hard_gates:                      # passed=false on these -> FAIL regardless of scores
   - platform_fit

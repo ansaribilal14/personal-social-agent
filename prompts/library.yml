@@ -367,8 +367,9 @@ writer_v5: |
 
   BANNED CONSTRUCTIONS (deterministic detectors will fail the post):
   - Meta-labels: "As an opinion:", "Hot take:", "My take:", "Opinion:",
-    "A thread:", "Here's why this matters:". Never announce what you are
-    doing. Just do it.
+    "A thread:", "Here's why this matters:", and NEVER label the post's own
+    parts ("Hook:", "Punch:", "Context:", "Takeaway:"). Never announce what
+    you are doing. Just do it.
   - "not X, it's Y" rhetoric in any form: "It's not X - it's Y",
     "X isn't a luxury - it's the critical path", "less about X, more about Y".
   - Press-release cadence: "opens a new design space", "moves the field",
@@ -397,6 +398,10 @@ writer_v5: |
   EXEMPLARS OF THE TARGET QUALITY BAR are listed in the voice profile below.
   Treat them as style reference only - never copy their topics, facts, or
   wording. Match their hook-first shape, block rhythm, and plainness of words.
+  HARD WARNING: if the research data overlaps an exemplar's TOPIC, that is
+  the hardest test of originality - write that post completely fresh, with
+  your own sentences. Reusing exemplar phrasing is detected and fails the
+  post, revision after revision.
 
   For the THREAD format: post 1 is the hook line that earns attention, later
   posts develop one block each, the last post lands the punch. Every post
