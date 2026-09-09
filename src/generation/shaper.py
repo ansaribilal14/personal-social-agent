@@ -85,25 +85,74 @@ def _substance_score(sentence: str) -> int:
     return score
 
 
+def _block_sentence_count(block: str) -> int:
+    return len([s for s in re.split(r"(?<=[.!?])\s+", block.strip()) if s.strip()])
+
+
+def _exemplar_last_blocks(exemplars: list[str] | None) -> list[str]:
+    out = []
+    for ex in (exemplars or []):
+        blocks = [b for b in re.split(r"\n\s*\n", str(ex).strip()) if b.strip()]
+        if blocks:
+            out.append(blocks[-1].strip())
+    return out
+
+
+def _drop_canned_punch_from_blocks(blocks: list[str],
+                                   exemplars: list[str] | None) -> list[str]:
+    """Remove a closing sentence/block that verbatim-copies an exemplar punch."""
+    ex_tails = _exemplar_last_blocks(exemplars)
+    if not ex_tails or len(blocks) < 2:
+        return blocks
+    tail = blocks[-1].strip()
+    tail_sents = [s for s in re.split(r"(?<=[.!?])\s+", tail) if s.strip()]
+    # (a) the whole tail block IS the punch
+    run = max((_word_run_overlap(tail, t) for t in ex_tails), default=0)
+    if run >= PUNCH_MAX_RUN and len(_WORD_RE.findall(tail)) >= 4:
+        return blocks[:-1]
+    # (b) the punch is the tail block's last sentence
+    if tail_sents:
+        last = tail_sents[-1]
+        run = max((_word_run_overlap(last, t) for t in ex_tails), default=0)
+        if run >= PUNCH_MAX_RUN and len(_WORD_RE.findall(last)) >= 4:
+            kept = " ".join(tail_sents[:-1]).strip()
+            if kept:
+                return blocks[:-1] + [kept]
+    return blocks
+
+
 def normalize_post_shape(body: str, max_chars: int,
                          exemplars: list[str] | None = None) -> str:
     """Return a shaped version of the post. Never raises; returns the input
-    unchanged when it cannot be improved safely."""
+    unchanged when it cannot be improved safely.
+
+    Idempotent for already-shaped posts: valid blank-line structure within
+    budget is returned verbatim (only a canned exemplar punch is removed), so
+    the normalizer never churns formatting the model got right.
+    """
     text = (body or "").strip()
     if not text:
         return body or ""
+
+    # Fast path: already shaped (blocks, short hook, within budget)?
+    blocks_raw = [b for b in re.split(r"\n\s*\n", text) if b.strip()]
+    if len(blocks_raw) >= 2 and len(blocks_raw[0]) <= HOOK_MAX_CHARS \
+            and all(_block_sentence_count(b) <= 2 for b in blocks_raw) \
+            and len(text) <= max_chars:
+        return "\n\n".join(
+            _drop_canned_punch_from_blocks(blocks_raw, exemplars)).strip()
+
     sents = _split_sentences(text)
     if not sents:
         return body or ""
 
     # 1. drop a canned exemplar punch (stock closing formula)
     if exemplars:
+        ex_tails = _exemplar_last_blocks(exemplars)
         kept = []
         for i, s in enumerate(sents):
             if i > 0 and i == len(sents) - 1 and len(_WORD_RE.findall(s)) >= 4:
-                run = max((_word_run_overlap(s, str(ex).strip().splitlines()[-1]
-                                             if str(ex).strip() else str(ex))
-                           for ex in exemplars), default=0)
+                run = max((_word_run_overlap(s, t) for t in ex_tails), default=0)
                 if run >= PUNCH_MAX_RUN:
                     continue   # drop the canned punch
             kept.append(s)
